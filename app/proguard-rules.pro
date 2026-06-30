@@ -67,3 +67,16 @@
     public static *** v(...);
     public static *** i(...);
 }
+
+#### Gemini API Client (TimoTxt Gemini source)
+# Gson uses reflection to serialize/deserialize ParagraphItem. Keep its fields.
+-keep class my.noveldokusha.scraper.sources.GeminiApiClient$ParagraphItem { *; }
+-keep class my.noveldokusha.scraper.sources.GeminiApiClient { *; }
+-keep class my.noveldokusha.scraper.sources.TimoTxtGemini { *; }
+-keep class my.noveldokusha.scraper.sources.TimoTxtTranslate { *; }
+
+# Gson itself
+-keep class com.google.gson.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
+-dontwarn com.google.gson.**

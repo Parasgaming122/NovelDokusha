@@ -65,6 +65,11 @@ internal class SettingsViewModel @Inject constructor(
             autoUpdateIntervalHours = appPreferences.GLOBAL_APP_AUTOMATIC_LIBRARY_UPDATES_INTERVAL_HOURS.state(
                 viewModelScope
             )
+        ),
+        geminiSettings = SettingsScreenState.GeminiSettings(
+            apiKey = appPreferences.GEMINI_API_KEY.state(viewModelScope),
+            model = appPreferences.GEMINI_MODEL.state(viewModelScope),
+            temperature = appPreferences.GEMINI_TEMPERATURE.state(viewModelScope)
         )
     )
 

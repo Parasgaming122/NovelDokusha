@@ -1,5 +1,6 @@
 package my.noveldokusha.scraper
 
+import my.noveldokusha.core.appPreferences.AppPreferences
 import my.noveldokusha.network.NetworkClient
 import my.noveldokusha.scraper.databases.BakaUpdates
 import my.noveldokusha.scraper.databases.NovelUpdates
@@ -25,6 +26,9 @@ import my.noveldokusha.scraper.sources.RoyalRoad
 import my.noveldokusha.scraper.sources.Saikai
 import my.noveldokusha.scraper.sources.SakuraNovel
 import my.noveldokusha.scraper.sources.Sousetsuka
+import my.noveldokusha.scraper.sources.TimoTxt
+import my.noveldokusha.scraper.sources.TimoTxtGemini
+import my.noveldokusha.scraper.sources.TimoTxtTranslate
 import my.noveldokusha.scraper.sources.WbNovel
 import my.noveldokusha.scraper.sources.Wuxia
 import my.noveldokusha.scraper.sources.WuxiaWorld
@@ -35,7 +39,8 @@ import javax.inject.Singleton
 @Singleton
 class Scraper @Inject constructor(
     networkClient: NetworkClient,
-    localSource: LocalSource
+    localSource: LocalSource,
+    appPreferences: AppPreferences,
 ) {
     val databasesList = setOf(
         NovelUpdates(networkClient),
@@ -70,6 +75,13 @@ class Scraper @Inject constructor(
         Novelku(networkClient),
         WbNovel(networkClient),
         NovelBin(networkClient),
+        TimoTxt(networkClient),
+        TimoTxtTranslate(networkClient),
+        TimoTxtGemini(
+            networkClient = networkClient,
+            geminiApiKey = appPreferences.GEMINI_API_KEY.value,
+            geminiModel = appPreferences.GEMINI_MODEL.value,
+        ),
     )
 
     val sourcesCatalogsList = sourcesList.filterIsInstance<SourceInterface.Catalog>()

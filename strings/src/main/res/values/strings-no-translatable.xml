@@ -28,5 +28,19 @@
     <string translatable="false" name="source_name_novelbin">NovelBin</string>
     <string translatable="false" name="source_name_novelku">NovelKu</string>
     <string translatable="false" name="source_name_wb_novel">Wb Novel</string>
+    <string translatable="false" name="source_name_timotxt">TimoTxt</string>
+    <string translatable="false" name="source_name_timotxt_translate">TimoTxt (Translated)</string>
+    <string translatable="false" name="source_name_timotxt_gemini">TimoTxt (Gemini)</string>
+
+    <!-- Additional sources added by fork -->
+    <string translatable="false" name="source_name_fanmtl">FanMTL</string>
+    <string translatable="false" name="source_name_freewebnovel">FreeWebNovel</string>
+    <string translatable="false" name="source_name_novel543">Novel543</string>
+    <string translatable="false" name="source_name_novelbin_paras">NovelBin (Paras)</string>
+    <string translatable="false" name="source_name_novelhall_paras">NovelHall (Paras)</string>
+    <string translatable="false" name="source_name_novelhubapp">NovelHub</string>
+    <string translatable="false" name="source_name_novelhub_net">NovelHub Net</string>
+    <string translatable="false" name="source_name_twkan">Twkan</string>
+    <string translatable="false" name="source_name_webnovel">WebNovel</string>
 
 </resources>

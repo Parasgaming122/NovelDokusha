@@ -30,6 +30,7 @@ import my.noveldokusha.settings.sections.AppUpdates
 import my.noveldokusha.settings.sections.LibraryAutoUpdate
 import my.noveldokusha.settings.sections.SettingsBackup
 import my.noveldokusha.settings.sections.SettingsData
+import my.noveldokusha.settings.sections.SettingsGemini
 import my.noveldokusha.settings.sections.SettingsTheme
 import my.noveldokusha.settings.sections.SettingsTranslationModels
 
@@ -76,6 +77,15 @@ internal fun SettingsScreenBody(
                 onRemoveTranslationModel = onRemoveTranslationModel
             )
         }
+        HorizontalDivider()
+        SettingsGemini(
+            apiKey = state.geminiSettings.apiKey.value,
+            onApiKeyChange = { state.geminiSettings.apiKey.value = it },
+            model = state.geminiSettings.model.value,
+            onModelChange = { state.geminiSettings.model.value = it },
+            temperature = state.geminiSettings.temperature.value,
+            onTemperatureChange = { state.geminiSettings.temperature.value = it }
+        )
         HorizontalDivider()
         LibraryAutoUpdate(state = state.libraryAutoUpdate)
         HorizontalDivider()
@@ -127,6 +137,11 @@ private fun Preview() {
                     libraryAutoUpdate = SettingsScreenState.LibraryAutoUpdate(
                         autoUpdateEnabled = remember { mutableStateOf(true) },
                         autoUpdateIntervalHours = remember { mutableIntStateOf(24) },
+                    ),
+                    geminiSettings = SettingsScreenState.GeminiSettings(
+                        apiKey = remember { mutableStateOf("") },
+                        model = remember { mutableStateOf("gemini-2.5-flash") },
+                        temperature = remember { mutableStateOf(0.55f) },
                     )
                 ),
                 onFollowSystem = { },

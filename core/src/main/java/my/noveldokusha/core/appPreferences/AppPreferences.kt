@@ -155,6 +155,20 @@ class AppPreferences @Inject constructor(
             override var value by SharedPreference_Int(name, preferences, 24)
         }
 
+    // ── Gemini AI Translation settings ──────────────────────────────────
+
+    val GEMINI_API_KEY = object : Preference<String>("GEMINI_API_KEY") {
+        override var value by SharedPreference_String(name, preferences, "")
+    }
+
+    val GEMINI_MODEL = object : Preference<String>("GEMINI_MODEL") {
+        override var value by SharedPreference_String(name, preferences, "gemini-2.5-flash")
+    }
+
+    val GEMINI_TEMPERATURE = object : Preference<Float>("GEMINI_TEMPERATURE") {
+        override var value by SharedPreference_Float(name, preferences, 0.55f)
+    }
+
 
     @Deprecated("Removed", level = DeprecationLevel.HIDDEN)
     val LOCAL_SOURCES_URI_DIRECTORIES =

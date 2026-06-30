@@ -16,6 +16,7 @@ data class SettingsScreenState(
     val translationModelsStates: SnapshotStateList<TranslationModelState>,
     val updateAppSetting: UpdateApp,
     val libraryAutoUpdate: LibraryAutoUpdate,
+    val geminiSettings: GeminiSettings,
 ) {
     data class UpdateApp(
         val currentAppVersion: String,
@@ -27,5 +28,11 @@ data class SettingsScreenState(
     data class LibraryAutoUpdate(
         val autoUpdateEnabled: MutableState<Boolean>,
         val autoUpdateIntervalHours: MutableState<Int>,
+    )
+
+    data class GeminiSettings(
+        val apiKey: MutableState<String>,
+        val model: MutableState<String>,
+        val temperature: MutableState<Float>,
     )
 }
