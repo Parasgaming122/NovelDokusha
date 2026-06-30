@@ -50,7 +50,8 @@ import org.jsoup.nodes.Document
 class TimoTxtGemini(
     private val networkClient: NetworkClient,
     private val geminiApiKey: String,
-    private val geminiModel: String = "gemini-2.5-flash"
+    private val geminiModel: String = "gemini-2.5-flash",
+    private val geminiTemperatureProvider: () -> Float = { 0.55f }
 ) : SourceInterface.Catalog {
 
     override val id = "timotxt_gemini"
@@ -64,7 +65,11 @@ class TimoTxtGemini(
 
     /** Lazy-initialized Gemini API client */
     private val geminiClient by lazy {
-        GeminiApiClient(apiKey = geminiApiKey, model = geminiModel)
+        GeminiApiClient(
+            apiKey = geminiApiKey,
+            model = geminiModel,
+            temperatureProvider = geminiTemperatureProvider
+        )
     }
 
     /** Junk text patterns to remove from chapter content (both Chinese and English variants) */

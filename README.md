@@ -23,7 +23,7 @@ An Android web novel reader focused on simplicity and reading immersion. Search 
 ## Features
 
 ### Library & Discovery
-- **Multiple sources**: 30+ built-in novel sources spanning English, Chinese, Japanese, Korean, Indonesian, Portuguese, and Vietnamese catalogs.
+- **Multiple sources**: 30+ built-in novel sources spanning English, Chinese, Indonesian, and Portuguese catalogs.
 - **Multiple databases**: Cross-source novel lookup via NovelUpdates and BakaUpdates.
 - **Local source**: Read locally-stored EPUB files directly in the reader.
 - **Global search**: Search across all enabled sources simultaneously.
@@ -49,14 +49,16 @@ An Android web novel reader focused on simplicity and reading immersion. Search 
 The app ships with 30+ pre-configured sources. Each implements a common `SourceInterface` so adding a new source is as simple as dropping a new Kotlin file into `scraper/src/main/java/my/noveldokusha/scraper/sources/`.
 
 ### Catalog sources (English)
-- Royal Road, LightNovelsTranslations, ReadLightNovel, ReadNovelFull, NovelUpdates, BestLightNovel, 1stKissNovel, BoxNovel, LightNovelWorld, NovelHall, WuxiaWorld, KoreanNovelsMTL, NovelBin, Reddit, Sousetsuka
+- Royal Road, LightNovelsTranslations, ReadLightNovel, ReadNovelFull, NovelUpdates, BestLightNovel, 1stKissNovel, BoxNovel, LightNovelWorld, NovelHall, WuxiaWorld, KoreanNovelsMTL, NovelBin, Reddit, Sousetsuka, Wuxia, TimoTxt (Translate), TimoTxt (Gemini)
 
 ### Catalog sources (Other languages)
 - **Indonesian**: IndoWebnovel, BacaLightnovel, SakuraNovel, MeioNovel, MoreNovel, Novelku, WbNovel
-- **Chinese**: TimoTxt, TimoTxt (Translate), TimoTxt (Gemini)
+- **Chinese**: TimoTxt
 - **Portuguese**: Saikai
-- **Vietnamese**: Wuxia
-- **Japanese**: AT
+
+> **Note on language codes:** The `LanguageCode` enum in `core/LanguageCode.kt` only defines `ENGLISH`, `PORTUGUESE`, `SPANISH`, `FRENCH`, `INDONESIAN`, `CHINESE`. Sources named after a specific country (e.g. `KoreanNovelsMTL`, `Wuxia`) still expose English-translated catalogs and are therefore tagged `LanguageCode.ENGLISH`. `AT` is a non-catalog base source (no language).
+
+> **Planned:** Nine additional source string IDs (`source_name_fanmtl`, `source_name_freewebnovel`, `source_name_novel543`, `source_name_novelbin_paras`, `source_name_novelhall_paras`, `source_name_novelhubapp`, `source_name_novelhub_net`, `source_name_twkan`, `source_name_webnovel`) are already declared in `strings/.../strings-no-translatable.xml` as placeholders for sources to be added in a future release.
 
 ### Translation sources (this fork)
 | Source | Mechanism | Quality | Speed | Cost |
@@ -314,16 +316,23 @@ class YourSource @Inject constructor(
     private val networkClient: NetworkClient
 ) : SourceInterface.Catalog {
     override val id = "your_source_id"
-    override val name = "Your Source"
-    override val baseUrl = "https://example.com"
-    override val language = "English"
+    override val nameStrId = R.string.source_name_your_source
+    override val baseUrl = "https://example.com/"
+    override val catalogUrl = "https://example.com/"
+    override val language = LanguageCode.ENGLISH
 
     override suspend fun getCatalogList(index: Int): Response<PagedList<BookResult>> { ... }
     override suspend fun getCatalogSearch(index: Int, input: String): Response<PagedList<BookResult>> { ... }
-    override suspend fun getBookCover(url: String): Response<BookResult> { ... }
-    override suspend fun getChapterList(url: String): Response<List<ChapterResult>> { ... }
-    override suspend fun getChapterText(url: String): Response<String> { ... }
+    override suspend fun getBookCoverImageUrl(bookUrl: String): Response<String?> { ... }
+    override suspend fun getChapterList(bookUrl: String): Response<List<ChapterResult>> { ... }
+    override suspend fun getChapterText(doc: Document): String? { ... }
 }
+```
+
+Add a matching string resource to `strings/src/main/res/values/strings-no-translatable.xml`:
+
+```xml
+<string translatable="false" name="source_name_your_source">Your Source</string>
 ```
 
 For a real example, see `TimoTxt.kt` (simple HTML scraping) or `TimoTxtGemini.kt` (advanced: API-backed translation source).

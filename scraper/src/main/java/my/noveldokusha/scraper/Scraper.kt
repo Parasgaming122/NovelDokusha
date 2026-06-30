@@ -81,6 +81,7 @@ class Scraper @Inject constructor(
             networkClient = networkClient,
             geminiApiKey = appPreferences.GEMINI_API_KEY.value,
             geminiModel = appPreferences.GEMINI_MODEL.value,
+            geminiTemperatureProvider = { appPreferences.GEMINI_TEMPERATURE.value },
         ),
     )
 

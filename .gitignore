@@ -1,13 +1,32 @@
+# IDE / OS
 *.iml
 .gradle
-/local.properties
 /.idea
 .DS_Store
-/build
-/captures
-.externalNativeBuild
 .cxx
+.externalNativeBuild
+/captures
+
+# Local config (machine-specific SDK path)
+/local.properties
+
+# Signing config (may contain secrets)
+custom.properties
+*.keystore
+*.jks
+*.jsk
+
+# Build outputs (any module)
+/build
+**/build/
+/app/release
+staging/
+
+# Local database (Room SQLite files)
 /word_database
 /word_database-shm
 /word_database-wal
-/app/release
+
+# Python caches
+__pycache__/
+*.pyc

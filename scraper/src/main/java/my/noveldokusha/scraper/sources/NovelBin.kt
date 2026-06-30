@@ -82,11 +82,12 @@ class NovelBin(private val networkClient: NetworkClient) : SourceInterface.Catal
                 val keyId = networkClient
                     .get(bookUrl)
                     .toDocument()
-                    .expectFirst("meta[property=og:url]")
-                    .attr("content")
-                    .toUrlBuilderSafe()
-                    .build()
-                    .lastPathSegment!!
+                    .selectFirst("meta[property=og:url]")
+                    ?.attr("content")
+                    ?.toUrlBuilderSafe()
+                    ?.build()
+                    ?.lastPathSegment
+                    ?: throw NoSuchElementException("og:url meta tag not found on $bookUrl")
 
                 getRequest(
                     url =

@@ -1,5 +1,6 @@
 package my.noveldokusha
 
+import my.noveldokusha.core.appPreferences.AppPreferences
 import my.noveldokusha.network.NetworkClient
 import my.noveldokusha.scraper.Scraper
 import my.noveldokusha.tooling.local_source.AppLocalSources
@@ -19,7 +20,8 @@ class ScraperTest {
 
     private val sut = Scraper(
         networkClient = networkClient,
-        localSource = AppLocalSources(mock(), mock(), mock())
+        localSource = AppLocalSources(mock(), mock(), mock()),
+        appPreferences = mock<AppPreferences>()
     )
 
     @Before

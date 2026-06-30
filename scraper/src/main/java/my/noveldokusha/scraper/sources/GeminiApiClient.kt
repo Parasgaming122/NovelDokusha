@@ -21,8 +21,11 @@ import java.util.concurrent.TimeUnit
  */
 class GeminiApiClient(
     private val apiKey: String,
-    private val model: String = "gemini-2.5-flash"
+    private val model: String = "gemini-2.5-flash",
+    private val temperatureProvider: () -> Float = { 0.55f }
 ) {
+    /** Current temperature value — re-read from the provider on each request so settings changes take effect immediately. */
+    private val temperature: Float get() = temperatureProvider()
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -164,7 +167,7 @@ STYLE GUIDELINES:
   "system_instruction": {"parts": [{"text": "$escapedSystemPrompt"}]},
   "contents": [{"parts": [{"text": "$escapedInput"}]}],
   "generationConfig": {
-    "temperature": 0.55,
+    "temperature": $temperature,
     "responseMimeType": "application/json"
   },
   "safetySettings": [
