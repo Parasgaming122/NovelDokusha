@@ -1,5 +1,6 @@
 package my.noveldokusha.scraper.sources
 
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -48,10 +49,8 @@ import org.jsoup.nodes.Document
  */
 class TimoTxtGemini(
     private val networkClient: NetworkClient,
-    // T2 fix: providers instead of eager values, so Settings changes take effect without restart.
-    private val geminiApiKeyProvider: () -> String,
-    private val geminiModelProvider: () -> String = { "gemini-2.5-flash" },
-    private val geminiTemperatureProvider: () -> Float = { 0.55f }
+    private val geminiApiKey: String,
+    private val geminiModel: String = "gemini-2.5-flash"
 ) : SourceInterface.Catalog {
 
     override val id = "timotxt_gemini"
@@ -63,13 +62,9 @@ class TimoTxtGemini(
     /** Original timotxt.com base URL for fetching content */
     private val originalBaseUrl = "https://www.timotxt.com/"
 
-    /** Lazy-initialized Gemini API client. Receives providers so apiKey/model/temperature are read live. */
+    /** Lazy-initialized Gemini API client */
     private val geminiClient by lazy {
-        GeminiApiClient(
-            apiKeyProvider = geminiApiKeyProvider,
-            modelProvider = geminiModelProvider,
-            temperatureProvider = geminiTemperatureProvider
-        )
+        GeminiApiClient(apiKey = geminiApiKey, model = geminiModel)
     }
 
     /** Junk text patterns to remove from chapter content (both Chinese and English variants) */
@@ -232,9 +227,7 @@ class TimoTxtGemini(
         tryConnect {
             val originalUrl = fromGeminiUrl(bookUrl)
             val doc = networkClient.get(originalUrl).toDocument()
-            // S2 fix: OG standard uses meta[property=og:image], not meta[name=og:image]. The previous
-            // selector never matched, silently falling through to .cover img[src].
-            doc.selectFirst("meta[property=og:image]")
+            doc.selectFirst("meta[name=og:image]")
                 ?.attr("content")
                 ?: doc.selectFirst(".cover img[src]")
                     ?.attr("src")
@@ -389,7 +382,7 @@ class TimoTxtGemini(
                     rawTitle
                 }
 
-                val cover = doc.selectFirst("meta[property=og:image]")?.attr("content") ?: ""
+                val cover = doc.selectFirst("meta[name=og:image]")?.attr("content") ?: ""
 
                 return@tryConnect PagedList(
                     list = listOf(

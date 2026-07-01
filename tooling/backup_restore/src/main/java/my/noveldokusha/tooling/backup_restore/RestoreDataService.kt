@@ -152,15 +152,13 @@ class RestoreDataService : Service() {
             return@withContext
         }
 
-        // D4 fix: previously `associateWith { zipStream.readBytes() }` loaded the ENTIRE backup
-        // zip into memory at once, causing OOM on devices with limited RAM when the backup
-        // contained many cover images. Now we stream entries one at a time — only the current
-        // entry's bytes are in memory at any moment (and the database entry, which Room needs
-        // as a complete stream).
-        //
-        // We define the local helpers BEFORE the loop so the call sites are clear, and we read
-        // each entry's bytes into a fresh ByteArrayInputStream so the helpers can call
-        // `.use { ... }` on their input without closing the shared ZipInputStream.
+        val zipSequence = ZipInputStream(inputStream).let { zipStream ->
+            generateSequence { zipStream.nextEntry }
+                .filterNot { it.isDirectory }
+                .associateWith { zipStream.readBytes() }
+        }
+
+
         suspend fun mergeToDatabase(inputStream: InputStream) {
             tryAsResponse {
                 notificationsCenter.modifyNotification(
@@ -251,33 +249,10 @@ class RestoreDataService : Service() {
         ) {
             text = getString(R.string.adding_images)
         }
-
-        ZipInputStream(inputStream).use { zipStream ->
-            while (true) {
-                val entry = zipStream.nextEntry ?: break
-                if (entry.isDirectory) continue
-
-                when {
-                    entry.name == "database.sqlite3" -> {
-                        // Read just the database entry into memory (Room's createFromInputStream
-                        // needs a complete stream; the database file is small enough).
-                        val dbBytes = zipStream.readBytes()
-                        mergeToDatabase(dbBytes.inputStream())
-                    }
-                    entry.name.startsWith("books/") -> {
-                        // Read this entry's bytes into memory so mergeToBookFolder can call
-                        // `.use { ... }` on its InputStream without closing the shared ZipInputStream.
-                        val entryBytes = zipStream.readBytes()
-                        mergeToBookFolder(entry, entryBytes.inputStream())
-                    }
-                }
-            }
+        for ((entry, file) in zipSequence) when {
+            entry.name == "database.sqlite3" -> mergeToDatabase(file.inputStream())
+            entry.name.startsWith("books/") -> mergeToBookFolder(entry, file.inputStream())
         }
-
-        // D5 fix: explicitly delete the temp database file from the filesystem after restore.
-        // clearDatabase() only clears the tables — the SQLite file itself remains in the app's
-        // internal storage, wasting ~the size of the backup on every restore.
-        context.deleteDatabase("temp_database")
 
         inputStream.closeQuietly()
         notificationsCenter.modifyNotification(

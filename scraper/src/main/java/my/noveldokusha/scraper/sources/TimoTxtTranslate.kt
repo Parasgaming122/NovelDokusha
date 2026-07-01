@@ -225,10 +225,10 @@ class TimoTxtTranslate(
                     )
                 }
 
-            val hasNextPage = (doc.selectFirst("a.next, .pagination .next, .pager a:contains(下一頁)") != null) ||
-                doc.select(".pagination li, .pager li").let { pages ->
-                    pages.isNotEmpty() && !pages.last()?.hasClass("active")!!
-                }
+            val hasNextPage = doc.selectFirst("a.next, .pagination .next, .pager a:contains(下一頁)")
+                != null || doc.select(".pagination li, .pager li").let { pages ->
+                pages.isNotEmpty() && !pages.last()?.hasClass("active")!!
+            }
 
             PagedList(
                 list = books,
@@ -358,10 +358,6 @@ class TimoTxtTranslate(
     /**
      * Batch translate chapter titles by joining with " ||| " separator,
      * translating as one unit, then splitting back.
-     *
-     * S3 fix: previously the join separator (" ||| ") and split separator (" || | ") did not
-     * match, so the split always failed and we fell through to the regex fallback. Aligned both
-     * to " ||| " — what we send to Google Translate is what we expect to get back.
      */
     private suspend fun translateBatchTitles(titles: List<String>): List<String> =
         withContext(Dispatchers.IO) {
@@ -371,8 +367,7 @@ class TimoTxtTranslate(
             val result = mutableListOf<String>()
 
             for (batch in titles.chunked(chunkSize)) {
-                val separator = " ||| "
-                val joined = batch.joinToString(separator)
+                val joined = batch.joinToString(" ||| ")
                 if (!isPrimarilyCJK(joined)) {
                     result.addAll(batch)
                     continue
@@ -394,7 +389,7 @@ class TimoTxtTranslate(
                     parseTranslationResponse(json)
                 } ?: joined
 
-                val split = translated.split(separator)
+                val split = translated.split(" ||| ")
                 if (split.size == batch.size) {
                     result.addAll(split)
                 } else {

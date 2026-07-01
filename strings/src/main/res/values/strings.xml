@@ -190,25 +190,6 @@
         <string name="download">Download</string>
         <string name="new_app_version_found_s">New app version found %s</string>
         <string name="automatically_check_for_library_updates">Automatically check for library updates</string>
-        <!-- C4 fix: Gemini AI Translation section strings (previously hardcoded in SettingsGemini.kt) -->
-        <string name="gemini_ai_translation">Gemini AI Translation</string>
-        <string name="gemini_api_key_label">API Key</string>
-        <string name="gemini_api_key_hint">Get your free key at aistudio.google.com</string>
-        <string name="gemini_api_key_field_label">Gemini API Key</string>
-        <string name="gemini_model_label">Model</string>
-        <string name="gemini_model_hint">Select a preset or enter a custom model name</string>
-        <string name="gemini_model_flash_best_quality">Flash (Best quality, 10 RPM/250 RPD)</string>
-        <string name="gemini_model_flash_lite_more_quota">Flash Lite (More quota, 30 RPM/1000 RPD)</string>
-        <string name="gemini_custom_model">Custom model…</string>
-        <string name="gemini_enter_custom_model_name">Enter custom model name</string>
-        <string name="gemini_model_name_label">Model name</string>
-        <string name="gemini_use_preset_instead">Use preset instead</string>
-        <string name="gemini_temperature_label">Temperature: %1$.2f</string>
-        <string name="gemini_temperature_hint">0.3 = consistent, 0.55 = balanced, 0.7 = creative</string>
-        <string name="gemini_status_key_configured">Status: Key configured. Use TimoTxt (Gemini) source to read novels with AI translation.</string>
-        <string name="gemini_status_no_api_key">Status: No API key. TimoTxt (Gemini) source requires a Gemini API key to translate.</string>
-        <!-- C4 fix: Library updates section title (previously hardcoded in LibraryAutoUpdate.kt) -->
-        <string name="library_updates">Library updates</string>
         <string name="library_update_interval_6_h">6 h</string>
     <string name="library_update_interval_12_h">12 h</string>
     <string name="library_update_interval_1_day">1 day</string>

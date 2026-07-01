@@ -32,10 +32,7 @@ class RoyalRoad(
     override val id = "royal_road"
     override val nameStrId = R.string.source_name_royal_road
     override val baseUrl = "https://www.royalroad.com/"
-    // S6 fix: catalogUrl was "fictions/latest-updates?page=1" but getCatalogList actually fetches
-    // fictions/best-rated. The catalogUrl field is for display only (not for fetching), but having
-    // it disagree with the actual fetch URL is misleading. Aligned to best-rated.
-    override val catalogUrl = "https://www.royalroad.com/fictions/best-rated?page=1"
+    override val catalogUrl = "https://www.royalroad.com/fictions/latest-updates?page=1"
     override val language = LanguageCode.ENGLISH
 
     private val cssPattern = Regex("(?<class>\\.\\w+)\\s*\\{.*display: none;.*\\}", RegexOption.DOT_MATCHES_ALL)
@@ -144,7 +141,14 @@ class RoyalRoad(
             if (input.isBlank() || index > 0)
                 return@tryConnect PagedList.createEmpty(index = index)
 
-            val request = getRequest("https://www.royalroad.com/fictions/search?title=${input}")
+            // Build the search URL with the title parameter properly URL-encoded
+            // so spaces, ampersands, and non-ASCII characters don't break the URL.
+            val searchUrl = "https://www.royalroad.com/".toUrlBuilderSafe()
+                .addPath("fictions", "search")
+                .add("title", input)
+                .toString()
+
+            val request = getRequest(searchUrl)
                 .addHeader("accept", "*/*")
                 .addHeader("accept-encoding", "gzip, deflate, br")
                 .addHeader(

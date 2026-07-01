@@ -6,26 +6,25 @@ on:
 jobs:
   buildRelease:
     name: Build Release APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Clone repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
       - name: Set up JDK enviroment
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v1.4.3
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          java-version: 17
 
       - name: Setup Python enviroment
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v2
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Setup Gradle version to 8.2
+        uses: gradle/gradle-build-action@v2
         with:
-          gradle-version: '8.2'
+          gradle-version: 8.2
 
       - name: Setup APK signing
         run: |
@@ -37,20 +36,17 @@ jobs:
 
       - name: Build app
         run: |
-          chmod +x ./gradlew
-          ./gradlew assembleRelease -PlocalPropertiesFilePath=custom.properties --no-daemon --no-parallel
+          gradle assembleRelease -PlocalPropertiesFilePath=custom.properties
 
       - name: Create apk env info entries, move APK
         run: |
           python .github/build_scripts/extract_info.py
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         with:
           name: NovelDokusha v${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
           files: |
             ${{ env.APK_FILE_PATH_full }}
             ${{ env.APK_FILE_PATH_foss }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

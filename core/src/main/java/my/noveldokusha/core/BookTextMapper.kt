@@ -30,13 +30,8 @@ object BookTextMapper {
 
             private fun fromXMLStringV1(text: String): ImgEntry? {
                 return Jsoup.parse(text).selectFirst("img")?.let {
-                    // S14 fix: Jsoup's Element.attr() returns "" (empty string) when the attribute is
-                    // missing — it never returns null. So `?: return null` was dead code. Use isBlank()
-                    // so empty/missing src attributes are actually rejected.
-                    val src = it.attr("src")
-                    if (src.isBlank()) return null
                     ImgEntry(
-                        path = src,
+                        path = it.attr("src") ?: return null,
                         yrel = it.attr("yrel").toFloatOrNull() ?: return null
                     )
                 }

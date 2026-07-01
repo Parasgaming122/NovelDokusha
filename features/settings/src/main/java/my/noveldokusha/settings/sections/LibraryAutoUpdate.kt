@@ -39,8 +39,7 @@ fun LibraryAutoUpdate(
 ) {
     Column {
         Text(
-            // C4 fix: previously hardcoded "Library updates" — non-English users saw English.
-            text = stringResource(R.string.library_updates),
+            text = "Library updates",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.textPadding(),
             color = ColorAccent

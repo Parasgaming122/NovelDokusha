@@ -16,12 +16,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 open class BaseActivity : AppCompatActivity() {
 
-    // C1 fix: previously `by lazy { AppPreferences(applicationContext) }` constructed a second
-    // AppPreferences instance separate from the Hilt @Singleton. Both shared the same backing
-    // SharedPreferences, but the OnSharedPreferenceChangeListener flow machinery was duplicated.
-    // Now we inject the singleton — only one instance lives in the app.
-    @Inject
-    lateinit var appPreferences: AppPreferences
+    val appPreferences: AppPreferences by lazy { AppPreferences(applicationContext) }
 
     @Inject
     lateinit var themeProvider: ThemeProvider

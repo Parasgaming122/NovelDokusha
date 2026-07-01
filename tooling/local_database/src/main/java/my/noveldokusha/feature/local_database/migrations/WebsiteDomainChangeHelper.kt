@@ -8,41 +8,36 @@ internal fun MigrationsList.websiteDomainChangeHelper(
     oldDomain: String,
     newDomain: String,
 ) {
-    // Replace the old domain with the new domain in every URL-bearing column.
-    //
-    // Important SQLite syntax notes:
-    //   * UPDATE has exactly one SET keyword followed by comma-separated assignments.
-    //     Earlier code emitted a leading "SET" inside every assignment which produced
-    //     invalid SQL like "UPDATE Book SET a=..., SET b=...".
-    //   * The WHERE clause must reference a column that actually exists on the table.
-    //     The Book table has no `chapterUrl` column, so we filter on `url` instead.
-    fun assign(columnName: String) =
-        """$columnName = REPLACE($columnName, "$oldDomain", "$newDomain")"""
+    // readlightnovel source changed its domain to "newDomain"
+    fun replace(columnName: String) =
+        """SET $columnName = REPLACE($columnName, "$oldDomain", "$newDomain")"""
 
     fun like(columnName: String) =
         """($columnName LIKE "%$oldDomain%")"""
-
     it.execSQL(
         """
             UPDATE Book
-            SET ${assign("url")},
-                ${assign("coverImageUrl")}
-            WHERE ${like("url")};
+                ${replace("url")},
+                ${replace("coverImageUrl")},
+            WHERE
+                ${like("chapterUrl")};
         """.trimIndent()
     )
     it.execSQL(
         """
             UPDATE Chapter
-            SET ${assign("url")},
-                ${assign("bookUrl")}
-            WHERE ${like("bookUrl")};
+                ${replace("url")},
+                ${replace("bookUrl")},
+            WHERE
+                ${like("bookUrl")};
         """.trimIndent()
     )
     it.execSQL(
         """
             UPDATE ChapterBody
-            SET ${assign("url")}
-            WHERE ${like("url")};
+                ${replace("url")},
+            WHERE
+                ${like("url")};
         """.trimIndent()
     )
 }

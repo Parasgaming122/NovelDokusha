@@ -49,7 +49,7 @@ class WebViewActivity : ComponentActivity() {
                 WebViewScreen(
                     toolbarTitle = extras.url,
                     webViewFactory = { webView },
-                    onBackClicked = { this@WebViewActivity.onBackPressedDispatcher.onBackPressed() },
+                    onBackClicked = { this@WebViewActivity.onBackPressed() },
                     onReloadClicked = { webView.reload() }
                 )
             }

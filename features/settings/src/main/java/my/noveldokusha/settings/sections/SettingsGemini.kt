@@ -15,6 +15,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -30,7 +31,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import my.noveldokusha.strings.R
 
 /**
@@ -52,19 +52,19 @@ fun SettingsGemini(
     onTemperatureChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Section(title = stringResource(R.string.gemini_ai_translation)) {
+    Section(title = "Gemini AI Translation") {
         // API Key input
         var showApiKey by remember { mutableStateOf(false) }
 
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Text(
-                text = stringResource(R.string.gemini_api_key_label),
+                text = "API Key",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = stringResource(R.string.gemini_api_key_hint),
+                text = "Get your free key at aistudio.google.com",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -73,7 +73,7 @@ fun SettingsGemini(
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = onApiKeyChange,
-                label = { Text(stringResource(R.string.gemini_api_key_field_label)) },
+                label = { Text("Gemini API Key") },
                 visualTransformation = if (showApiKey) VisualTransformation.None
                 else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -91,11 +91,9 @@ fun SettingsGemini(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Model selection
-            // C4 fix: localized model labels via stringResource. Hardcoded labels meant non-English
-            // users saw English text in the Gemini settings section.
             val presetModels = listOf(
-                "gemini-2.5-flash" to stringResource(R.string.gemini_model_flash_best_quality),
-                "gemini-2.5-flash-lite" to stringResource(R.string.gemini_model_flash_lite_more_quota),
+                "gemini-2.5-flash" to "Flash (Best quality, 10 RPM/250 RPD)",
+                "gemini-2.5-flash-lite" to "Flash Lite (More quota, 30 RPM/1000 RPD)",
             )
             var expanded by remember { mutableStateOf(false) }
             var isCustomModel by remember {
@@ -103,13 +101,13 @@ fun SettingsGemini(
             }
 
             Text(
-                text = stringResource(R.string.gemini_model_label),
+                text = "Model",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = stringResource(R.string.gemini_model_hint),
+                text = "Select a preset or enter a custom model name",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -126,7 +124,7 @@ fun SettingsGemini(
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
 
@@ -153,7 +151,7 @@ fun SettingsGemini(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.gemini_custom_model)) },
+                            text = { Text("Custom model...") },
                             onClick = {
                                 isCustomModel = true
                                 expanded = false
@@ -164,13 +162,13 @@ fun SettingsGemini(
 
                 Spacer(modifier = Modifier.height(4.dp))
                 Button(onClick = { isCustomModel = true }) {
-                    Text(stringResource(R.string.gemini_enter_custom_model_name))
+                    Text("Enter custom model name")
                 }
             } else {
                 OutlinedTextField(
                     value = model,
                     onValueChange = onModelChange,
-                    label = { Text(stringResource(R.string.gemini_model_name_label)) },
+                    label = { Text("Model name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -179,7 +177,7 @@ fun SettingsGemini(
                     isCustomModel = false
                     onModelChange("gemini-2.5-flash")
                 }) {
-                    Text(stringResource(R.string.gemini_use_preset_instead))
+                    Text("Use preset instead")
                 }
             }
 
@@ -187,13 +185,13 @@ fun SettingsGemini(
 
             // Temperature slider
             Text(
-                text = stringResource(R.string.gemini_temperature_label, temperature),
+                text = "Temperature: ${String.format("%.2f", temperature)}",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = stringResource(R.string.gemini_temperature_hint),
+                text = "0.3 = consistent, 0.55 = balanced, 0.7 = creative",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -212,13 +210,13 @@ fun SettingsGemini(
             // Status info
             if (apiKey.isNotBlank()) {
                 Text(
-                    text = stringResource(R.string.gemini_status_key_configured),
+                    text = "Status: Key configured. Use TimoTxt (Gemini) source to read novels with AI translation.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
             } else {
                 Text(
-                    text = stringResource(R.string.gemini_status_no_api_key),
+                    text = "Status: No API key. TimoTxt (Gemini) source requires a Gemini API key to translate.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )

@@ -84,11 +84,6 @@ class LibraryBooksRepository @Inject constructor(
                 bookFolderName = bookFolderName
             )
             fileImporter(targetFile = bookCoverFile, imageData = imageData)
-            // D6: This 1-second delay is a deliberate workaround for a MediaStore/indexing race
-            // condition on some OEM ROMs (notably MIUI/EMUI) where the cover image is written
-            // to disk but the file system / MediaStore hasn't yet indexed it by the time
-            // updateCover() reads it back. Removing this delay causes the cover to appear blank
-            // on affected devices. Safe to remove once MediaScannerConnection is wired up properly.
             delay(timeMillis = 1_000)
             updateCover(bookUrl = bookUrl, coverUrl = appFileResolver.getLocalBookCoverPath())
         }

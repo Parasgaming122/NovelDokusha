@@ -1,253 +1,289 @@
-# NovelDokusha — Sources Audit & Status
+# NovelDokusha Sources
 
-> **Audit date**: 2026-06-30
-> **Auditor approach**: Hit every source's `baseUrl` + `catalogUrl` from a clean curl with a modern Chrome User-Agent, then for each broken domain probed common alternative TLDs and verified the HTML structure of replacements.
+This document lists all novel sources currently supported by NovelDokusha, as
+well as sources that have been removed. It also documents the Cloudflare bypass
+mechanism and the source architecture.
 
-## TL;DR
+## Active Sources
 
-- **Working as-is (200, no JS challenge)**: 6 sources
-- **Working but Cloudflare JS-challenged (200 + "Just a moment..." / "Redirecting..." body, needs WebView at runtime)**: 9 sources
-- **Domain changed (URL updated)**: 4 sources
-- **Permanently dead (removed)**: 8 sources
-- **New source added**: 1 (AllNovel)
-- **Final registered source count**: 21 catalog sources + 2 databases
+### English
 
----
+| Source | Base URL | Notes |
+|--------|----------|-------|
+| Light Novel Translations | `https://lightnovelstranslations.com/` | |
+| Read Novel Full | `https://readnovelfull.com/` | |
+| Royal Road | `https://www.royalroad.com/` | |
+| Novel Updates | `https://www.novelupdates.com/` | Also used as a database |
+| Reddit | `https://www.reddit.com/` | |
+| AT | `https://www.a-t.nu/` | |
+| Wuxia | `https://wuxia.click/` | **Updated 2026-06-30**: replaced dead `wuxia.blog` with `wuxia.click`. Next.js-based site; data extracted from `__NEXT_DATA__` JSON. |
+| Novel Fire | `https://novelfire.net/` | **Added 2026-06-30**. Same template as NovelPhoenix. Search uses `?keyword=` (not `?q=`). |
+| Novel Phoenix | `https://novelphoenix.com/` | **Added 2026-06-30**. Same template as NovelFire. Chapter list is paginated (100/page). |
+| Novel Cool | `https://www.novelcool.com/` | **Added 2026-06-30**. Scraper implemented from archived HTML structure; will work when site is back online. |
+| Lnori | `https://lnori.com/` | **Added 2026-06-30**. Volume-based Japanese light novel source. Each "chapter" is an entire volume. |
+| Wuxia Box | `https://www.wuxiabox.com/` | **Added 2026-06-30**. Scraper implemented from archived HTML; may be behind Cloudflare challenge. |
+| Sousetsuka | `https://www.sousetsuka.com/` | |
+| Box Novel | `https://boxnovel.com/` | |
+| NovelHall | `https://www.novelhall.com/` | |
+| Wuxia World | `https://wuxiaworld.site/` | |
+| Saikai | `https://saikaiscan.com.br/` | May be behind Discord login |
+| Light Novel World | `https://www.lightnovelworld.com/` | |
+| Meio Novel | `https://meionovel.id/` | |
+| More Novel | `https://morenovel.net/` | |
+| NovelKu | `https://novelku.id/` | |
+| Wb Novel | `https://wbnovel.com/` | |
 
-## 1. Final Source List (registered in `Scraper.kt`)
+### Indonesian
 
-### English (15)
+| Source | Base URL |
+|--------|----------|
+| Indonesia Webnovel | `https://indowebnovel.id/` |
+| Baca Lightnovel | `https://bacalightnovel.co/` |
+| Sakura Novel | `https://sakuranovel.id/` |
 
-| Source | baseUrl | Status | Notes |
-|---|---|---|---|
-| LightNovelsTranslations | `https://lightnovelstranslations.com/` | ✅ CF-protected | Returns 200 with content; CF headers. Works at runtime via WebView fallback. |
-| ReadLightNovel | `https://www.readlightnovel.org/` | ✅ Updated | Was `.meme` (expired) → `.org`. Same HTML structure. |
-| ReadNovelFull | `https://readnovelfull.com/` | ✅ CF-protected | Returns 200 with content; CF headers. Works at runtime. |
-| RoyalRoad | `https://www.royalroad.com/` | ✅ CF-protected | Returns 403 (CF "Just a moment..."); CF interceptor solves at runtime. |
-| NovelUpdates (Catalog) | `https://www.novelupdates.com/` | ✅ CF-protected | Returns 403; CF interceptor solves at runtime. `requiresLogin = true` for chapter content. |
-| Reddit | `https://www.reddit.com/` | ✅ Works | Plain HTML scraping; redirects to `old.reddit.com` for parseable layout. |
-| BestLightNovel | `https://bestlightnovel.com/` | ✅ CF-protected | Returns 200 with content; CF headers. |
-| _1stKissNovel | `https://1stkissnovel.org/` | ✅ CF-protected | Returns 200 + JS challenge; CF interceptor solves at runtime. |
-| Sousetsuka | `https://www.sousetsuka.com/` | ✅ Works | Blogspot, plain HTML. |
-| BoxNovel | `https://boxnovel.org/` | ✅ Updated | Was `.com` (broken SSL chain) → `.org`. Same Madara theme. CF JS challenge solved at runtime. |
-| NovelHall | `https://www.novelhall.com/` | ✅ CF-protected | Returns 200 + JS challenge; CF interceptor solves at runtime. |
-| MTLNovel | `https://mtlnovels.com/` | ✅ Updated | Was `www.mtlnovel.com` (times out) → `mtlnovels.com`. Same WordPress + AMP structure. CF JS challenge. |
-| WuxiaWorld | `https://wuxiaworld.site/` | ✅ CF-protected | Returns 200 with content; CF headers. Works at runtime. |
-| KoreanNovelsMTL | `https://www.koreanmtl.online/` | ✅ CF-protected | Returns 200 + JS challenge; CF interceptor solves at runtime. `requiresLogin = true` for chapter content. |
-| **AllNovel** *(new)* | `https://allnovel.org/` | ✅ Works | Replaces LightNovelWorld (which has shut down). Plain HTML, no CF challenge. |
+### Chinese
 
-### Indonesian (4)
+| Source | Base URL | Notes |
+|--------|----------|-------|
+| TimoTxt | `https://www.timotxt.com/` | |
+| TimoTxt (Translated) | `https://www.timotxt.com/` | With MLKit translation |
+| TimoTxt (Gemini) | `https://www.timotxt.com/` | With Gemini AI translation |
 
-| Source | baseUrl | Status | Notes |
-|---|---|---|---|
-| IndoWebnovel | `https://indowebnovel.id/` | ✅ Works | CF-protected but returns 200 with content. |
-| BacaLightnovel | `https://bacalightnovel.co/` | ✅ CF-protected | Returns 403 (CF "Just a moment..."); CF interceptor solves at runtime. |
-| SakuraNovel | `https://sakuranovel.id/` | ✅ CF-protected | Returns 403 (CF "Just a moment..."); CF interceptor solves at runtime. |
-| NovelBin | `https://novelbin.net/` | ✅ Updated | Was `.me` (expired) → `.net`. Same structure. CF JS challenge. |
+### Local
 
-### Chinese (3)
+| Source | Notes |
+|--------|-------|
+| Local Source | Read local EPUB files |
 
-| Source | baseUrl | Status | Notes |
-|---|---|---|---|
-| TimoTxt | `https://www.timotxt.com/` | ✅ Works | CF-protected but returns 200 with content. |
-| TimoTxtTranslate | `https://www-timotxt-com.translate.goog/` | ✅ Works | Google Translate proxy of timotxt.com — inherits the upstream site's availability. |
-| TimoTxtGemini | `https://www-timotxt-com-gemini.goog/` | ✅ Works | Custom virtual URL — content fetched from timotxt.com then translated via Gemini API at runtime. |
+## Removed Sources (2026-06-30)
 
-### Databases (2)
+The following sources were removed because their domains are dead, parked, or serving scam content:
 
-| Database | baseUrl | Status | Notes |
-|---|---|---|---|
-| NovelUpdates | `https://www.novelupdates.com/` | ✅ CF-protected | Same as the catalog source. Returns 403; CF interceptor handles. |
-| BakaUpdates | `https://www.mangaupdates.com/` | ✅ Rate-limited | Returns 429 — Cloudflare rate-limits but does not challenge. The 429 status is now also handled by the improved CF interceptor (added to `ERROR_CODES`). |
+| Source | Old Domain | Reason |
+|--------|-----------|--------|
+| Read Light Novel | `https://www.readlightnovel.org` | Domain expired (DNS NXDOMAIN) |
+| BestLightNovel | `https://bestlightnovel.com/` | Redirects to scam tarot game |
+| 1stKissNovel | `https://1stkissnovel.org/` | Scam stub; ww1 subdomain returns HTTP 436 |
+| MTLNovel | `http://ww1.mtlnovels.com` | Dead stub (475 bytes) |
+| Korean Novels MTL | `https://www.koreanmtl.online/` | Scam PPC-redirect stub |
+| NovelBin | `https://novelbin.net/` | Dead stub (474 bytes) |
 
----
+## Database Sources
 
-## 2. Removed Sources (8)
+| Database | Base URL |
+|----------|----------|
+| Novel Updates | `https://www.novelupdates.com/` |
+| Baka-Updates | `https://www.mangaupdates.com/` |
 
-These sources have been **deleted from the codebase** because their underlying websites are permanently unreachable from a clean network connection. No working replacement with similar content/language could be found.
+## Architecture Notes
 
-| Source | Old baseUrl | Cause | Replacement searched |
-|---|---|---|---|
-| **AT** | `https://a-t.nu/` | DNS does not resolve (`a-t.nu`) | `anfinet.com`, `alltubenovel.com`, `aniworld.com` — none worked |
-| **MoreNovel** | `https://morenovel.net/` | DNS gone; `morenovel.com` is a HugeDomains sale page | No alternative found |
-| **Novelku** | `https://novelku.id/` | DNS does not resolve | `novelku.net`, `novelku.com`, `novelgo.id` — none worked |
-| **MeioNovel** | `https://meionovel.id/` | 301-redirects to `meionovels.com` which times out | No alternative found |
-| **WbNovel** | `https://wbnovel.com/` | Domain taken over by an unrelated Next.js app ("CoreSip") | No alternative found |
-| **Wuxia** | `https://www.wuxia.blog/` | DNS resolves (103.224.182.238) but server does not respond on 443 | `wuxiaworld.co`, `wuxia.world`, `wuxia.online` — all either CF-challenged or timed out |
-| **LightNovelWorld** | `https://www.lightnovelworld.com/` | Site permanently shut down (returns 200 + `<title>Light Novel World Platform Shut Down</title>`) | Replaced by **AllNovel** (`allnovel.org`) |
-| **Saikai** | `https://saikaiscan.com.br/` | DNS does not resolve (also `api.saikai.com.br` is dead) | `tsundoku.com.br` works for chapter pages but has no clean catalog API — not a drop-in replacement |
+### Source Interface
 
-Files deleted:
-- `scraper/.../sources/AT.kt`
-- `scraper/.../sources/MoreNovel.kt`
-- `scraper/.../sources/Novelku.kt`
-- `scraper/.../sources/MeioNovel.kt`
-- `scraper/.../sources/WbNovel.kt`
-- `scraper/.../sources/Wuxia.kt`
-- `scraper/.../sources/LightNovelWorld.kt`
-- `scraper/.../sources/Saikai.kt`
+All sources implement `SourceInterface` (defined in `SourceInterface.kt`). There are two subtypes:
 
----
+- **`SourceInterface.Base`** — Sources with only a base URL (no catalog/search). Used for sources like Reddit, Sousetsuka, AT.
+- **`SourceInterface.Catalog`** — Sources with a catalog URL, search, book info, chapter list, and chapter reader. Most sources implement this.
 
-## 3. Networking Layer Improvements
+### Registration
 
-Two changes were made to the `:networking` module to improve compatibility with the modern CF-protected web.
+Sources are registered in `Scraper.kt` via the `sourcesList` set. Each source
+takes a `NetworkClient` parameter for HTTP requests. The `Scraper` class is
+provided via Hilt dependency injection.
 
-### 3.1 `UserAgentInterceptor`
+### String Resources
 
-**Before**:
-```kotlin
-const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 6.3; WOW64)"
-```
+Each source has a display name string in
+`strings/src/main/res/values/strings-no-translatable.xml` with the naming
+convention `source_name_<id>`.
 
-That is a Windows 8.1-era string that Cloudflare and many sites silently classify as a bot.
+### Testing
 
-**After** (file: `networking/.../interceptors/UserAgentInterceptor.kt`):
-```kotlin
-const val DEFAULT_USER_AGENT =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-```
+Each catalog source has an instrumented test in
+`app/src/androidTest/java/my/noveldokusha/SourcesCatalogTest.kt` that verifies
+the source can be opened in the app.
 
-The interceptor now also back-fills browser-like headers when missing:
-`accept`, `accept-language`, `accept-encoding`, `sec-ch-ua`, `sec-ch-ua-mobile`,
-`sec-ch-ua-platform`, `sec-fetch-dest`, `sec-fetch-mode`, `sec-fetch-site`,
-`sec-fetch-user`, `upgrade-insecure-requests`.
+Unit tests in `app/src/test/java/my/noveldokusha/ScraperTest.kt` verify that:
+- All source base URLs end with a slash
+- All source IDs are unique
+- All sources can be found by their base URL
 
-Sites that inspect these headers (CF Turnstile, Royal Road, Novel Updates, etc.)
-treat requests missing them as suspicious; backfilling significantly reduces false
-positives.
+### ProGuard / R8 Rules
 
-### 3.2 `CloudFareVerificationInterceptor`
+The app's ProGuard rules (`app/proguard-rules.pro`) include `-keep` rules for:
+- All source classes under `my.noveldokusha.scraper.sources.**`
+- All database classes under `my.noveldokusha.scraper.databases.**`
+- The `Scraper` registry class
+- The `SourceInterface` sealed interface and its nested subtypes
+- All networking interceptors (including the Cloudflare bypass)
+- Custom exception classes
 
-**Before** (file: `networking/.../interceptors/CloudfareVerificationInterceptor.kt`):
-- Only triggered on HTTP 403 / 503 with `Server: cloudflare-nginx` or `cloudflare`.
+This ensures that R8's code removal doesn't strip source metadata (IDs, base
+URLs, string resource IDs) that are accessed reflectively at runtime.
 
-**After**:
-- **Also triggers on HTTP 429** (Too Many Requests) — sites like mangaupdates.com rate-limit rather than challenge.
-- **Also triggers on HTTP 200 with a JS challenge body**: peeks the first 16 KB of HTML responses and looks for the markers `Just a moment...`, `cf-browser-verification`, `cf_chl_opt`, `cf-mitigated`, `window._cf_chl_opt`, `Checking your browser before accessing`, `challenge-platform`, `cdn-cgi/challenge-platform/h/`, `cf-turnstile`, `Attention Required! | Cloudflare`. Modern CF deployments often return 200 + an interstitial rather than 403 — the old interceptor silently passed the challenge HTML to Jsoup and broke every catalog source behind such protection.
-- Server-header check expanded to also match `ddos-guard` and `CF-RAY` (independent of `Server`).
+### Database Migrations
 
-The WebView challenge solver itself is unchanged: it loads the URL in an Android
-WebView, waits 20 seconds for JS to compute the `cf_clearance` cookie, then
-replays the original request with the new cookie. The cookie is sticky in the
-shared `ScraperCookieJar`, so subsequent requests to the same domain succeed
-without re-solving.
+When a source's domain changes, a database migration is added in
+`tooling/local_database/src/main/java/my/noveldokusha/feature/local_database/migrations/`
+to update stored URLs. Historical migrations for removed sources are kept to
+support users with older databases.
 
----
+## Cloudflare Bypass
 
-## 4. URL Updates (4 sources with new domain, same structure)
+Many novel hosting sites are protected by Cloudflare's "managed challenge" or
+"JS challenge" systems. NovelDokusha includes a **multi-tier** Cloudflare
+evasion/bypass mechanism inspired by the [trawl](https://github.com/germondai/trawl)
+project. The bypass lives in two files:
 
-| Source | Old | New | Why |
-|---|---|---|---|
-| ReadLightNovel | `readlightnovel.meme` | `readlightnovel.org` | `.meme` TLD expired; `.org` is the same site (identical HTML / selectors). |
-| NovelBin | `novelbin.me` | `novelbin.net` | `.me` expired; `.net` is the same WordPress + Madara site. |
-| MTLNovel | `www.mtlnovel.com` | `mtlnovels.com` | `www.mtlnovel.com` times out; `mtlnovels.com` is the new canonical domain (same WP + AMP structure, same ajax search endpoint). |
-| BoxNovel | `boxnovel.com` | `boxnovel.org` | `.com` has a broken SSL certificate chain; `.org` is the same Madara-themed site. |
+- `networking/src/main/java/my/noveldokusha/network/interceptors/BrowserHeadersInterceptor.kt`
+  — Tier 1: makes every OkHttp request look like a real Chrome navigation so
+  most sites never escalate to a challenge in the first place.
+- `networking/src/main/java/my/noveldokusha/network/interceptors/CloudfareVerificationInterceptor.kt`
+  — Tier 2/3: if a challenge is still served, fires up a headless WebView to
+  solve it, harvests the `cf_clearance` cookie, and retries the original
+  request.
 
-For each of these, only the URL constants in the source file were changed.
-The parsing logic, selectors, and Ajax endpoints are unchanged because the
-underlying HTML is identical.
+### Tier 1 — Browser-headers evasion
 
----
+The `BrowserHeadersInterceptor` sets the standard set of headers that Chrome
+sends on every navigation request. Many bot-protection services never escalate
+to a JS challenge at all if the initial request looks browser-like; conversely,
+a request that omits these headers is trivially identifiable as a non-browser
+client. The headers set (each only if not already present on the request):
 
-## 5. New Source: `AllNovel`
+| Header | Value | Why |
+|--------|-------|-----|
+| `Accept` | `text/html,application/xhtml+xml,...` | Standard browser content negotiation |
+| `Accept-Language` | `en-US,en;q=0.9` | Matches the WebView default |
+| `Accept-Encoding` | `gzip, deflate, br` | DecodeResponseInterceptor handles decompression |
+| `Cache-Control` | `no-cache` | Avoids serving stale CF challenge pages from cache |
+| `Pragma` | `no-cache` | HTTP/1.0 equivalent, belt-and-suspenders |
+| `Upgrade-Insecure-Requests` | `1` | Chrome always sends this on navigations |
+| `Sec-Fetch-Dest` | `document` | Modern browser fingerprint signal |
+| `Sec-Fetch-Mode` | `navigate` | Modern browser fingerprint signal |
+| `Sec-Fetch-Site` | `none` | Top-level navigation, no referrer |
+| `Sec-Fetch-User` | `?1` | User-initiated navigation |
+| `Sec-CH-UA` | `"Chromium";v="120",...` | Matches the User-Agent set by UserAgentInterceptor |
+| `Sec-CH-UA-Mobile` | `?1` | Mobile UA |
+| `Sec-CH-UA-Platform` | `"Android"` | Matches the Pixel UA |
 
-Replaces the shut-down LightNovelWorld. File: `scraper/.../sources/AllNovel.kt`.
+### Tier 2/3 — WebView-based challenge solving
 
-- **Site**: https://allnovel.org/
-- **Language**: English
-- **Catalog**: `https://allnovel.org/latest-release-novel?page=N`
-- **Book page**: `https://allnovel.org/{slug}.html`
-- **Chapter page**: `https://allnovel.org/{slug}/{chapter-slug}.html`
+When a response is detected as a Cloudflare challenge, the
+`CloudFareVerificationInterceptor` takes over:
 
-Selectors used (verified against the live site):
+1. **Detection** — The interceptor checks every response for Cloudflare
+   signatures:
+   - HTTP 202/403/429/502/503 with a `Server: cloudflare*` (or `ddos-guard*`)
+     header, OR
+   - The `cf-mitigated` response header is present (CF sets this even on
+     non-HTML responses — strongest signal), OR
+   - Response body containing Cloudflare challenge markers (e.g.
+     `cf-browser-verification`, `Just a moment`, `challenge-platform`,
+     `cf-turnstile`, `verify you are human`, `id="turnstile-wrapper"`,
+     `ddos-guard.net`, etc.) — this catches "managed challenge" pages that
+     return HTTP 200 with no Server header.
 
-| Purpose | Selector |
-|---|---|
-| Catalog row | `.list.list-truyen .row` |
-| Catalog book title | `.truyen-title a[href][title]` |
-| Catalog book cover | `img.cover` |
-| Book cover | `meta[property=og:image]` |
-| Book description | `.desc-text` |
-| Chapter list | `#list-chapter .list-chapter li a[href][title]` |
-| Chapter text | `#chapter-content` |
-| Pagination | `ul.pagination li.active` (last `<li>` active ⇒ last page) |
+2. **WebView-based bypass** — When a challenge is detected:
+   - A headless `WebView` is created on the main thread (required by Android).
+   - The WebView's User-Agent is forced to match the OkHttp request's
+     User-Agent (critical — Cloudflare rejects challenges where the UA
+     differs between the triggering request and the challenge-solving
+     request).
+   - All relevant headers (Accept, Accept-Language, Referer, Sec-CH-UA-*,
+     Sec-Fetch-*) are forwarded to the WebView so the fingerprint matches.
+   - The WebView loads the challenged URL, which triggers Cloudflare's
+     JavaScript challenge.
 
-The source implements full `SourceInterface.Catalog`: `getCatalogList`,
-`getCatalogSearch`, `getChapterList`, `getChapterText`, `getBookCoverImageUrl`,
-`getBookDescription`. Ad iframes and nav elements inside `#chapter-content`
-are stripped before extraction.
+3. **Multi-signal completion detection** — The interceptor polls every 300ms
+   and exits as soon as ANY of:
+   - The `cf_clearance` cookie appears in the `CookieManager`, OR
+   - The page title changes away from a challenge title (`Just a moment`,
+     `Verify you are human`, `Please wait`, `One more step`,
+     `Attention required`, `Checking your browser`) — catches challenges
+     that set the cookie via a redirect that doesn't change the URL, OR
+   - The page URL navigates away from the challenge URL.
 
----
+4. **Force re-navigation when stuck** — If `cf_clearance` has been set but
+   the page is still on the challenge URL after 5 seconds, the interceptor
+   manually loads the original URL. This is the trick trawl uses to break
+   "cookie set but page stuck" loops that Turnstile sometimes triggers.
 
-## 6. Verification Matrix
+5. **Turnstile checkbox click** — Every 3 seconds, the interceptor injects
+   JavaScript into the WebView that dispatches a click event at the
+   Cloudflare Turnstile iframe (and a fallback in-page widget). For
+   interactive Turnstile widgets, this is what actually solves the
+   challenge; for non-interactive ("managed") widgets, it's a harmless
+   no-op.
 
-This is what curl reported when probing each registered source's `baseUrl`
-with the **new** Chrome UA. "CF body" means the response was 200 with a
-JS-challenge HTML body (now caught by the enhanced CF interceptor); "CF 403"
-means a 403 with `Server: cloudflare`.
+6. **IP-block fast-fail** — If the WebView navigates to a URL containing
+   `/cdn-cgi/error/`, `error=1020`, or `error=1015`, the interceptor
+   aborts immediately with a clear error message. No amount of
+   cookie-baking will fix a hard IP block; the user needs a different
+   network.
 
-| Source | curl status | Body / Server | Will work at runtime? |
-|---|---|---|---|
-| LightNovelsTranslations | 200 | Real content + CF headers | ✅ Yes |
-| ReadLightNovel (`.org`) | 200 (probe) | CF body | ✅ Yes (WebView) |
-| ReadNovelFull | 200 | Real content + CF headers | ✅ Yes |
-| RoyalRoad | 403 | CF body ("Just a moment...") | ✅ Yes (WebView) |
-| NovelUpdates | 403 | CF (17-byte "Too many requests") | ✅ Yes (WebView) |
-| Reddit | 200 | Real content | ✅ Yes |
-| BestLightNovel | 200 | Real content | ✅ Yes |
-| _1stKissNovel | 200 | CF body | ✅ Yes (WebView) |
-| Sousetsuka | 200 | Real content | ✅ Yes |
-| BoxNovel (`.org`) | 200 (probe) | CF body | ✅ Yes (WebView) |
-| NovelHall | 200 | CF body | ✅ Yes (WebView) |
-| MTLNovel (`mtlnovels.com`) | 200 | CF body | ✅ Yes (WebView) |
-| WuxiaWorld | 200 | Real content + CF headers | ✅ Yes |
-| KoreanNovelsMTL | 200 | CF body | ✅ Yes (WebView) |
-| AllNovel | 200 | Real content | ✅ Yes |
-| IndoWebnovel | 200 | Real content + CF headers | ✅ Yes |
-| BacaLightnovel | 403 | CF body | ✅ Yes (WebView) |
-| SakuraNovel | 403 | CF body | ✅ Yes (WebView) |
-| NovelBin (`.net`) | 200 (probe) | CF body | ✅ Yes (WebView) |
-| TimoTxt | 200 | Real content + CF headers | ✅ Yes |
-| TimoTxtTranslate | (inherits TimoTxt) | — | ✅ Yes |
-| TimoTxtGemini | (inherits TimoTxt) | — | ✅ Yes |
-| NovelUpdates (database) | 403 | CF | ✅ Yes (WebView) |
-| BakaUpdates | 429 | CF rate-limited | ✅ Yes (WebView now also handles 429) |
+7. **Cookie sharing** — The `ScraperCookieJar` (OkHttp's CookieJar) is
+   backed by the same `android.webkit.CookieManager` as the WebView. So
+   when the WebView solves the challenge and receives `cf_clearance`,
+   OkHttp automatically picks it up for subsequent requests.
 
-**Conclusion**: All 21 catalog sources + 2 databases are reachable. The CF-protected ones require the on-device `CloudFareVerificationInterceptor` (with WebView) to solve the JS challenge — this is the standard pattern used by every Android novel reader and is unchanged from upstream.
+8. **Retry mechanism** — If the first bypass attempt fails (still
+   challenged after retry), the interceptor retries up to 3 times. Each
+   attempt creates a fresh WebView.
 
----
+9. **Leak safety** — The WebView is always `stopLoading()` + `destroy()`
+   in a `finally` block, and the `WebViewClient` reference is reset
+   before destroy to avoid leaking the Activity context.
 
-## 7. Manual testing checklist
+### Configuration
 
-After installing the build, do a quick smoke test for each source:
+The bypass behavior is controlled by these constants in the interceptor file:
 
-1. Open **Finder** tab.
-2. Tap the source.
-3. Wait for the catalog list to load (≤ 30 seconds on first launch due to CF challenge solving).
-4. Tap any book → tap **chapters** → tap any chapter → verify text renders.
+| Constant | Default | Purpose |
+|----------|---------|---------|
+| `MAX_BYPASS_ATTEMPTS` | 3 | Max WebView retries per challenged request |
+| `MAX_CHALLENGE_WAIT` | 20 seconds | Hard cap on single attempt duration |
+| `CHALLENGE_POLL_INTERVAL` | 300ms | Cookie polling frequency |
+| `FORCE_NAVIGATION_DELAY` | 5 seconds | Grace period before force-re-navigating a stuck challenge |
+| `ERROR_CODES` | 202, 403, 429, 502, 503 | HTTP status codes that trigger challenge detection |
+| `CHALLENGE_HEADER_NAMES` | `cf-mitigated` | Response headers whose presence indicates a challenge |
+| `SERVER_HEADER_VALUES` | cloudflare, ddos-guard, ... | `Server` header values that identify CF/DDoS-Guard |
+| `CHALLENGE_BODY_MARKERS` | 21 markers | Body substrings that identify a challenge page |
+| `CHALLENGE_TITLE_MARKERS` | 6 markers | Page-title substrings that indicate an active challenge |
+| `IP_BLOCKED_URL_MARKERS` | `/cdn-cgi/error/`, `error=1020`, `error=1015` | URL patterns indicating a hard IP block |
 
-If a source still fails after the CF WebView has run:
+### Interceptor chain order
 
-- It's likely the site has changed its HTML structure. The selectors in the
-  source `.kt` file will need updating.
-- Re-run `scripts/check_sources_parallel.sh` from the project root to get a
-  fresh status snapshot.
-- Capture the live HTML with `curl -A "<UA>" -L "<catalogUrl>" > sample.html`
-  and diff against the selectors listed in the source file's KDoc.
+The OkHttp interceptors are applied in this order (defined in
+`NetworkClient.kt`):
 
----
+1. `HttpLoggingInterceptor` (debug builds only) — logs full request/response
+   bodies.
+2. `UserAgentInterceptor` — sets a modern Android Chrome User-Agent if none
+   is present.
+3. `BrowserHeadersInterceptor` — Tier 1: adds the browser-fingerprint
+   headers described above.
+4. `DecodeResponseInterceptor` — decompresses `gzip` and `br` response
+   bodies.
+5. `CloudFareVerificationInterceptor` — Tier 2/3: detects challenges and
+   solves them via WebView.
 
-## 8. Future-proofing notes
+Order matters: the User-Agent must be set before the browser headers so
+that `Sec-CH-UA` can match it; the decode interceptor must run before the
+Cloudflare interceptor so that compressed challenge bodies can be inspected.
 
-- The CF interceptor uses `WebView` on the main thread, which is slow (≈20 s
-  per challenge solve). Cookie stickiness in `ScraperCookieJar` means the
-  challenge only has to be solved **once per domain per session**.
-- If a source adds Turnstile (the visible checkbox widget), the WebView
-  approach will need extending to auto-click the checkbox. As of the audit
-  date, none of the registered sources use Turnstile on their catalog pages.
-- `mtlnovels.com` rate-limits aggressively (429 after ~5 requests in 30 s
-  from the same IP). The interceptor now handles 429 by triggering the
-  WebView cookie refresh, but if this becomes a persistent problem the
-  source should add a per-request delay.
+### Limitations
+
+- **Turnstile interactive challenges** — The interceptor injects JavaScript
+  to click the Turnstile checkbox, which works for most interactive widgets.
+  However, Cloudflare may occasionally serve a harder challenge (e.g.
+  image-based) that cannot be solved headlessly. In that case the bypass
+  will time out after 20 seconds and retry.
+- **IP-level blocks** — If Cloudflare blocks the IP entirely (error 1020 /
+  1015), the interceptor detects this and fails fast with a clear error
+  message. The user would need to use a different network.
+- **Android WebView required** — The bypass uses `android.webkit.WebView`,
+  which is only available on Android devices. It does not work in unit
+  tests or on JVM.
+- **First-request cost** — The first challenged request on a fresh session
+  pays the full WebView solve cost (2-20 seconds). Subsequent requests to
+  the same domain reuse the cached `cf_clearance` cookie and pay no cost.

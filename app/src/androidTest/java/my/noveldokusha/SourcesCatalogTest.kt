@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import my.noveldokusha.features.main.MainActivity
 import my.noveldoksuha.coreui.AppTestTags
+import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,18 +33,8 @@ class SourcesCatalogTest {
     }
 
     @Test
-    fun source__1stkissnovel() {
-        checkSourceCanBeOpened("1stKissNovel")
-    }
-
-    @Test
     fun source__royalroad() {
         checkSourceCanBeOpened("Royal Road")
-    }
-
-    @Test
-    fun source__bestlightnovel() {
-        checkSourceCanBeOpened("BestLightNovel")
     }
 
     @Test
@@ -52,23 +43,13 @@ class SourcesCatalogTest {
     }
 
     @Test
-    fun source__korean_novels_mtl() {
-        checkSourceCanBeOpened("Korean Novels MTL")
-    }
-
-    @Test
     fun source__light_novel_translations() {
         checkSourceCanBeOpened("Light Novel Translations")
     }
 
     @Test
-    fun source__all_novel() {
-        checkSourceCanBeOpened("AllNovel")
-    }
-
-    @Test
-    fun source__mtlnovel() {
-        checkSourceCanBeOpened("MTLNovel")
+    fun source__light_novel_world() {
+        checkSourceCanBeOpened("Light Novel World")
     }
 
     @Test
@@ -77,18 +58,49 @@ class SourcesCatalogTest {
     }
 
     @Test
-    fun source__read_light_novel() {
-        checkSourceCanBeOpened("Read Light Novel")
-    }
-
-    @Test
     fun source__read_novel_full() {
         checkSourceCanBeOpened("Read Novel Full")
     }
 
     @Test
+    @Ignore("Behind discord now")
+    fun source__saikai() {
+        checkSourceCanBeOpened("Saikai")
+    }
+
+    @Test
+    fun source__wuxia() {
+        checkSourceCanBeOpened("Wuxia")
+    }
+
+    @Test
     fun source__wuxia_world() {
         checkSourceCanBeOpened("Wuxia World")
+    }
+
+    @Test
+    fun source__novel_fire() {
+        checkSourceCanBeOpened("Novel Fire")
+    }
+
+    @Test
+    fun source__novel_phoenix() {
+        checkSourceCanBeOpened("Novel Phoenix")
+    }
+
+    @Test
+    fun source__novel_cool() {
+        checkSourceCanBeOpened("Novel Cool")
+    }
+
+    @Test
+    fun source__lnori() {
+        checkSourceCanBeOpened("Lnori")
+    }
+
+    @Test
+    fun source__wuxia_box() {
+        checkSourceCanBeOpened("Wuxia Box")
     }
 
     @OptIn(ExperimentalTestApi::class)

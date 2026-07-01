@@ -50,7 +50,7 @@ class ChaptersActivity : BaseActivity() {
                     onLibraryToggle = viewModel::toggleBookmark,
                     onSearchBookInDatabase = ::searchBookInDatabase,
                     onResumeReading = ::onOpenLastActiveChapter,
-                    onPressBack = onBackPressedDispatcher::onBackPressed,
+                    onPressBack = ::onBackPressed,
                     onSelectedDeleteDownloads = viewModel::deleteDownloadsSelected,
                     onSelectedDownload = viewModel::downloadSelected,
                     onSelectedSetRead = viewModel::setAsReadSelected,

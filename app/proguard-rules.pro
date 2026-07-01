@@ -22,6 +22,43 @@
 
 -keep public class * extends androidx.lifecycle.ViewModel { *; }
 
+################################################################################
+# Source classes — keep all source implementations and their metadata.
+# Sources are instantiated reflectively via Scraper.kt and their properties
+# (id, nameStrId, baseUrl, catalogUrl, language, iconUrl) are accessed at
+# runtime by name. Without these keep rules, R8 could rename fields and break
+# source discovery / catalog listing.
+################################################################################
+-keep class my.noveldokusha.scraper.sources.** { *; }
+-keep class my.noveldokusha.scraper.databases.** { *; }
+-keep class my.noveldokusha.scraper.Scraper { *; }
+-keep class my.noveldokusha.scraper.SourceInterface { *; }
+-keep class my.noveldokusha.scraper.SourceInterface$* { *; }
+-keep class my.noveldokusha.scraper.domain.** { *; }
+
+################################################################################
+# Networking interceptors — keep the Cloudflare bypass interceptor and its
+# collaborators. The WebView-based bypass creates WebViews by class name and
+# invokes CookieManager methods reflectively in some OEM ROMs.
+################################################################################
+-keep class my.noveldokusha.network.interceptors.** { *; }
+-keep class my.noveldokusha.network.ScraperNetworkClient { *; }
+-keep class my.noveldokusha.network.NetworkClient { *; }
+-keep class my.noveldokusha.network.ScraperCookieJar { *; }
+
+################################################################################
+# Cloudflare / WebView cookie bridge — CookieManager is accessed at runtime.
+################################################################################
+-keep class android.webkit.CookieManager { *; }
+-keepclassmembers class android.webkit.WebView {
+    public *;
+}
+
+################################################################################
+# Custom exceptions — keep message constructors so error reporting works.
+################################################################################
+-keep class my.noveldokusha.core.domain.*Exception { *; }
+
 
 
 
@@ -66,29 +103,4 @@
     public static *** d(...);
     public static *** v(...);
     public static *** i(...);
-}
-
-#### Gemini API Client (TimoTxt Gemini source)
-# Gson uses reflection to serialize/deserialize ParagraphItem. Keep its fields.
--keep class my.noveldokusha.scraper.sources.GeminiApiClient$ParagraphItem { *; }
--keep class my.noveldokusha.scraper.sources.GeminiApiClient { *; }
--keep class my.noveldokusha.scraper.sources.TimoTxtGemini { *; }
--keep class my.noveldokusha.scraper.sources.TimoTxtTranslate { *; }
-
-#### AllNovel source (added 2026-06-30)
--keep class my.noveldokusha.scraper.sources.AllNovel { *; }
-
-# Gson itself
--keep class com.google.gson.** { *; }
--keepattributes Signature
--keepattributes *Annotation*
--dontwarn com.google.gson.**
-
-#### Cloudflare interceptor — keep WebView-related classes (R8 sometimes strips
-#### WebSettings listeners when minify is enabled). The interceptor is the only
-#### runtime path that can solve CF JS challenges for the catalog sources.
--keep class my.noveldokusha.network.interceptors.CloudFareVerificationInterceptor { *; }
--keep class my.noveldokusha.network.interceptors.UserAgentInterceptor { *; }
--keepclassmembers class * extends android.webkit.WebViewClient {
-    public *;
 }

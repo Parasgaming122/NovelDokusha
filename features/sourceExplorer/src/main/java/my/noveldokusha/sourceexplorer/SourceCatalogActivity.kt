@@ -49,7 +49,7 @@ class SourceCatalogActivity : BaseActivity() {
                     },
                     onBookClicked = { navigationRoutes.chapters(this, it).let(::startActivity) },
                     onBookLongClicked = viewModel::addToLibraryToggle,
-                    onPressBack = onBackPressedDispatcher::onBackPressed
+                    onPressBack = ::onBackPressed
                 )
             }
         }

@@ -12,8 +12,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // BC1 fix: removed jcenter() — it has been deprecated since 2021 and sunset in 2022.
-        // No project dependency actually used it; jitpack.io remains for any transitive needs.
+        //noinspection JcenterRepositoryObsolete
+        jcenter()
         maven { setUrl("https://jitpack.io") }
     }
 }

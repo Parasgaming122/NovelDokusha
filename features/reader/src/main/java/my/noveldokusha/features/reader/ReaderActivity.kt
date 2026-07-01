@@ -113,18 +113,9 @@ class ReaderActivity : BaseActivity() {
 
     private val fontsLoader = FontsLoader()
 
-    // C3 fix: onBackPressed() is deprecated in API 33+. The modern pattern is to register an
-    // OnBackPressedCallback on the onBackPressedDispatcher. We register a callback that invokes
-    // the same onCloseManually() side-effect as before, then defers to the default back behavior
-    // (which finishes the activity) by calling isEnabled=false and redispatching.
-    private val backCallback by lazy {
-        object : androidx.activity.OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                viewModel.onCloseManually()
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
-            }
-        }
+    override fun onBackPressed() {
+        viewModel.onCloseManually()
+        super.onBackPressed()
     }
 
     override fun onDestroy() {
@@ -134,9 +125,6 @@ class ReaderActivity : BaseActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
-        // C3 fix: register the back-press callback BEFORE super.onCreate so it's wired up
-        // before any fragment/dialog can consume a back press during creation.
-        onBackPressedDispatcher.addCallback(this, backCallback)
         super.onCreate(savedInstanceState)
         viewBind.listView.adapter = viewAdapter.listView
 

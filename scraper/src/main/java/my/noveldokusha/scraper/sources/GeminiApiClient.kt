@@ -1,7 +1,7 @@
 package my.noveldokusha.scraper.sources
 
 import com.google.gson.Gson
-import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -20,18 +20,9 @@ import java.util.concurrent.TimeUnit
  * to translate paragraph lists efficiently.
  */
 class GeminiApiClient(
-    // T2 fix: apiKey/model are providers so Settings changes take effect on the next request,
-    // without needing to recreate the client or restart the app.
-    private val apiKeyProvider: () -> String,
-    private val modelProvider: () -> String = { "gemini-2.5-flash" },
-    private val temperatureProvider: () -> Float = { 0.55f }
+    private val apiKey: String,
+    private val model: String = "gemini-2.5-flash"
 ) {
-    /** Current API key — re-read on every request. */
-    private val apiKey: String get() = apiKeyProvider()
-    /** Current model name — re-read on every request (also drives rate-limit lookup). */
-    private val model: String get() = modelProvider()
-    /** Current temperature value — re-read from the provider on each request so settings changes take effect immediately. */
-    private val temperature: Float get() = temperatureProvider()
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -116,16 +107,19 @@ class GeminiApiClient(
                 .build()
 
             val response = client.newCall(request).execute()
-            val responseBody = response.body?.string()
-
-            if (!response.isSuccessful) {
-                if (response.code == 429) {
-                    throw RateLimitException("Rate limited by Gemini API")
+            // Use a local val so we can deterministically close it even if
+            // parsing throws — OkHttp response bodies must be closed to allow
+            // connection reuse, otherwise connections leak from the pool.
+            response.use {
+                val body = it.body?.string()
+                if (!it.isSuccessful) {
+                    if (it.code == 429) {
+                        throw RateLimitException("Rate limited by Gemini API")
+                    }
+                    throw GeminiApiException("API error ${it.code}: $body")
                 }
-                throw GeminiApiException("API error ${response.code}: $responseBody")
+                parseBatchResponse(body ?: "", batch)
             }
-
-            parseBatchResponse(responseBody ?: "", batch)
         } ?: batch // Fallback to original on failure
     }
 
@@ -173,7 +167,7 @@ STYLE GUIDELINES:
   "system_instruction": {"parts": [{"text": "$escapedSystemPrompt"}]},
   "contents": [{"parts": [{"text": "$escapedInput"}]}],
   "generationConfig": {
-    "temperature": $temperature,
+    "temperature": 0.55,
     "responseMimeType": "application/json"
   },
   "safetySettings": [
@@ -194,19 +188,13 @@ STYLE GUIDELINES:
         originalBatch: List<ParagraphItem>
     ): List<ParagraphItem> {
         try {
-            // S13 fix: JsonParser.parseString(...) is deprecated since Gson 3.x. Use gson.fromJson()
-            // which works on Gson 2.x (current: 2.10.1) and remains compatible with future 3.x upgrades.
-            val root = gson.fromJson(responseBody, JsonObject::class.java)
-                ?: return originalBatch
+            val root = JsonParser.parseString(responseBody).asJsonObject
             val candidates = root.getAsJsonArray("candidates")
-                ?: return originalBatch
             if (candidates.size() == 0) return originalBatch
 
             val content = candidates[0].asJsonObject
                 .getAsJsonObject("content")
-                ?: return originalBatch
             val parts = content.getAsJsonArray("parts")
-                ?: return originalBatch
             if (parts.size() == 0) return originalBatch
 
             val text = parts[0].asJsonObject.get("text").asString
@@ -289,50 +277,49 @@ STYLE GUIDELINES:
     // ─── Rate limiting ────────────────────────────────────────────────
 
     /**
-     * Enforce rate limits by tracking request timestamps and waiting if necessary.
+     * Enforce rate limits by tracking request timestamps and waiting
+     * if necessary.
      *
-     * S12 fix: previously used Thread.sleep() inside synchronized(lock), which blocks the calling
-     * coroutine's IO thread. Now the function is `suspend` and uses delay() so the dispatcher
-     * can free the thread for other work during the wait. The synchronized block is still used
-     * for the bookkeeping itself (timestamp list mutation), but it is now short and non-blocking.
+     * This is a suspend function and uses [delay] rather than [Thread.sleep]
+     * so that the calling coroutine (running on Dispatchers.IO) yields its
+     * thread while waiting, instead of blocking a precious IO thread for
+     * potentially up to a full day on the daily-limit path.
      */
     private suspend fun enforceRateLimit() {
         val limit = rateLimits[model] ?: RateLimit(rpm = 10, rpd = 250)
         val now = System.currentTimeMillis()
 
-        // Compute required wait time inside the lock; do the actual waiting outside (suspend).
-        val waitMs: Long = synchronized(lock) {
+        var waitMs = 0L
+        synchronized(lock) {
             // Clean up timestamps older than 1 day
             requestTimestamps.removeAll { now - it > 86_400_000 }
-
-            var requiredWait = 0L
 
             // Check daily limit
             if (requestTimestamps.size >= limit.rpd) {
                 val oldestToday = requestTimestamps.first()
-                val w = 86_400_000 - (now - oldestToday)
-                if (w > requiredWait) requiredWait = w
+                waitMs = maxOf(waitMs, 86_400_000 - (now - oldestToday) + 1000)
             }
 
             // Check per-minute limit
             val oneMinuteAgo = now - 60_000
             val recentRequests = requestTimestamps.count { it > oneMinuteAgo }
             if (recentRequests >= limit.rpm) {
-                val oldestRecent = requestTimestamps.last { it > oneMinuteAgo }
-                val w = 60_000 - (now - oldestRecent)
-                if (w > requiredWait) requiredWait = w
+                // lastOrNull() — `last { ... }` throws NoSuchElementException
+                // if no element matches, which can happen if the cleanup above
+                // removed all recent timestamps between the count() and now.
+                val oldestRecent = requestTimestamps.lastOrNull { it > oneMinuteAgo }
+                if (oldestRecent != null) {
+                    waitMs = maxOf(waitMs, 60_000 - (now - oldestRecent) + 1000)
+                }
             }
 
-            requiredWait
+            // Record this request attempt even if we're about to wait —
+            // otherwise concurrent callers could all pass the limit check.
+            requestTimestamps.add(System.currentTimeMillis())
         }
 
         if (waitMs > 0) {
-            // Coroutine-friendly sleep: frees the dispatcher thread for other work.
-            delay(waitMs + 1000)
-        }
-
-        synchronized(lock) {
-            requestTimestamps.add(System.currentTimeMillis())
+            delay(waitMs)
         }
     }
 

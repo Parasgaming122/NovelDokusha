@@ -24,13 +24,9 @@ class BoxNovel(
 ) : SourceInterface.Catalog {
     override val id = "box_novel"
     override val nameStrId = R.string.source_name_box_novel
-    // Domain moved from .com (broken SSL chain) to .org (same WordPress + Madara
-    // theme, identical HTML structure and selectors). The .org domain serves the
-    // site behind a Cloudflare JS challenge, handled at runtime by
-    // CloudFareVerificationInterceptor.
-    override val baseUrl = "https://boxnovel.org/"
-    override val catalogUrl = "https://boxnovel.org/novel/?m_orderby=alphabet"
-    override val iconUrl = "https://boxnovel.org/wp-content/uploads/2018/04/box-icon-150x150.png"
+    override val baseUrl = "https://boxnovel.com/"
+    override val catalogUrl = "https://boxnovel.com/novel/?m_orderby=alphabet"
+    override val iconUrl = "https://boxnovel.com/wp-content/uploads/2018/04/box-icon-150x150.png"
     override val language = LanguageCode.ENGLISH
 
     override suspend fun getBookCoverImageUrl(
