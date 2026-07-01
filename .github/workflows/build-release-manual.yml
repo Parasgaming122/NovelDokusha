@@ -1,26 +1,33 @@
-name: Build and Release Signed APK (Manual)
+name: Build & Release Signed APK
 
-# This workflow is triggered manually from the Actions tab.
-# It builds SIGNED RELEASE APKs (full + foss flavors) with R8 shrinking enabled,
-# producing ~5 MB APKs instead of ~25 MB debug APKs.
+# -----------------------------------------------------------------------------
+# This workflow builds SIGNED RELEASE APKs (full + foss flavors) with R8
+# shrinking enabled, producing ~5 MB APKs instead of ~25 MB debug APKs.
 #
-# Signing: uses a freshly-generated debug keystore so no GitHub secrets are required.
-# The resulting APKs are installable on any Android device that allows
-# "Install from unknown sources", but they are NOT Play-Store-uploadable.
+# Triggers:
+#   1. workflow_dispatch (manual) — lets you specify version_name and prerelease
+#   2. push to v* tags           — auto-runs when you push a version tag
+#   3. push to master/main       — builds + uploads artifacts (NO GitHub release)
 #
-# To use a real release keystore instead, set these repository secrets:
-#   SIGNING_KEY        (base64-encoded .jks/.keystore file)
-#   KEY_STORE_PASSWORD
-#   ALIAS
-#   KEY_PASSWORD
-# …then replace the "Generate Keystore" + "Write signing config" steps with
-# the equivalent steps from .github/workflows/buildRelease.yml.
+# Signing:
+#   Uses a freshly-generated debug keystore so no GitHub secrets are required.
+#   The resulting APKs are installable on any Android device that allows
+#   "Install from unknown sources", but they are NOT Play-Store-uploadable.
+#
+#   To use a real release keystore instead, set these repository secrets:
+#     SIGNING_KEY        (base64-encoded .jks/.keystore file)
+#     KEY_STORE_PASSWORD
+#     ALIAS
+#     KEY_PASSWORD
+#   …then replace the "Generate Keystore" + "Write signing config" steps with
+#   the equivalent steps from .github/workflows/buildRelease.yml.
+# -----------------------------------------------------------------------------
 
 on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Version name (e.g. 2.2.3). Leave empty for auto semver bump."
+        description: "Version name (e.g. 2.2.4). Leave empty for auto semver bump."
         required: false
         type: string
         default: ""
@@ -29,6 +36,14 @@ on:
         required: false
         type: boolean
         default: false
+      create_release:
+        description: "Create a GitHub release (set false to only upload artifacts)"
+        required: false
+        type: boolean
+        default: true
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
 
 permissions:
   contents: write # Needed by softprops/action-gh-release to create tags/releases
@@ -54,6 +69,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper # Uses the version pinned in gradle-wrapper.properties (8.2)
+          cache-read-only: ${{ github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -72,7 +88,7 @@ jobs:
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+            -dname "CN=NovelDokusha Debug,O=NovelDokusha,C=US"
 
       - name: Write signing config
         # storeFile is just the filename because file() in app/build.gradle.kts
@@ -84,15 +100,14 @@ jobs:
             echo "keyAlias=androiddebugkey"
             echo "keyPassword=android"
           } > custom.properties
-          # Verify the file contents
           echo "=== custom.properties ==="
           cat custom.properties
 
       - name: Build Full Release APK
-        run: ./gradlew assembleFullRelease -PlocalPropertiesFilePath=custom.properties --no-daemon --no-parallel
+        run: ./gradlew assembleFullRelease -PlocalPropertiesFilePath=custom.properties --no-daemon --no-parallel --stacktrace
 
       - name: Build FOSS Release APK
-        run: ./gradlew assembleFossRelease -PlocalPropertiesFilePath=custom.properties --no-daemon --no-parallel
+        run: ./gradlew assembleFossRelease -PlocalPropertiesFilePath=custom.properties --no-daemon --no-parallel --stacktrace
 
       - name: Locate Built APKs
         id: apk
@@ -113,42 +128,107 @@ jobs:
           echo "Full APK: $FULL_APK"
           echo "FOSS APK: $FOSS_APK"
 
+          # Print APK sizes for visibility
+          echo "=== APK sizes ==="
+          ls -lh "$FULL_APK" "$FOSS_APK"
+
           # Copy to a clean staging dir with friendly names
           mkdir -p staging
           cp "$FULL_APK" "staging/NovelDokusha-full-release.apk"
           cp "$FOSS_APK" "staging/NovelDokusha-foss-release.apk"
 
+          echo "=== staging/ contents ==="
           ls -la staging/
 
-      - name: Determine Next SemVer Version
-        if: ${{ !inputs.version_name }}
-        id: version_auto
-        uses: reecetech/version-increment@2024.4.3
-        with:
-          scheme: semver
-          increment: patch
-
-      - name: Set Final Version
-        id: version
+      - name: Verify APK signatures
+        # Confirms both APKs are signed (debug keystore). Prints the signer
+        # fingerprint so you can verify the keystore is the freshly-generated one.
         run: |
-          if [ -n "${{ inputs.version_name }}" ]; then
-            echo "v-version=v${{ inputs.version_name }}" >> $GITHUB_OUTPUT
-            echo "version=${{ inputs.version_name }}" >> $GITHUB_OUTPUT
+          for apk in staging/*.apk; do
+            echo "=== $apk ==="
+            $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -1)/apksigner verify --print-certs "$apk" || {
+              echo "WARNING: apksigner verification failed for $apk — APK may be unsigned"
+            }
+          done
+
+      - name: Upload APKs as workflow artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: signed-release-apks
+          path: staging/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build reports on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-reports
+          path: |
+            **/build/reports/
+            **/build/outputs/logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+      # ---------------------------------------------------------------------------
+      # Release creation — only runs on:
+      #   - tag pushes (refs/tags/v*)
+      #   - workflow_dispatch with create_release=true
+      # ---------------------------------------------------------------------------
+      - name: Determine version (from tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: version_tag
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "v-version=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Detected version from tag: v${VERSION}"
+
+      - name: Determine version (from manual input or auto-bump)
+        if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/v')
+        id: version_manual
+        run: |
+          INPUT_VERSION="${{ inputs.version_name }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "Using user-specified version: v${INPUT_VERSION}"
+            echo "version=${INPUT_VERSION}" >> $GITHUB_OUTPUT
+            echo "v-version=v${INPUT_VERSION}" >> $GITHUB_OUTPUT
           else
-            echo "v-version=${{ steps.version_auto.outputs.v-version }}" >> $GITHUB_OUTPUT
-            echo "version=${{ steps.version_auto.outputs.version }}" >> $GITHUB_OUTPUT
+            # Auto-bump: find the latest tag, increment patch
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            LATEST_VERSION="${LATEST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+            echo "Auto-bumped version: ${LATEST_VERSION} -> ${NEW_VERSION}"
+            echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+            echo "v-version=v${NEW_VERSION}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Should create release?
+        id: should_release
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            echo "create=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.create_release }}" = "true" ]; then
+            echo "create=true" >> $GITHUB_OUTPUT
+          else
+            echo "create=false" >> $GITHUB_OUTPUT
+            echo "Skipping release creation (push to branch, not a tag)"
           fi
 
       - name: Create Release and Upload APKs
+        if: steps.should_release.outputs.create == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.v-version }}
-          name: Release ${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version_tag.outputs.v-version || steps.version_manual.outputs.v-version }}
+          name: Release ${{ steps.version_tag.outputs.version || steps.version_manual.outputs.version }}
           files: |
             staging/NovelDokusha-full-release.apk
             staging/NovelDokusha-foss-release.apk
           generate_release_notes: true
           draft: false
-          prerelease: ${{ inputs.prerelease }}
+          prerelease: ${{ inputs.prerelease || false }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
