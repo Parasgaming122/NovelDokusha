@@ -541,7 +541,7 @@ internal class CloudFareVerificationInterceptor(
                     // load the original URL — this is the trawl trick that
                     // breaks "cookie set but page stuck" loops.
                     if (cfClearanceAt != null &&
-                        System.currentTimeMillis() - cfClearanceAt!! >=
+                        System.currentTimeMillis() - cfClearanceAt >=
                         FORCE_NAVIGATION_DELAY.inWholeMilliseconds
                     ) {
                         runCatching {
@@ -583,7 +583,6 @@ internal class CloudFareVerificationInterceptor(
                             currentUrl.contains(it, ignoreCase = true)
                         }
                     ) {
-                        lastUrl = currentUrl
                         // Give the cookie a brief moment to be set after
                         // the redirect lands.
                         delay(300)

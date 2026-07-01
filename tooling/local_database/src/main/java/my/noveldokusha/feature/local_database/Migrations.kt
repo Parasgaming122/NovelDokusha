@@ -3,6 +3,10 @@ package my.noveldokusha.feature.local_database
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import my.noveldokusha.feature.local_database.migrations.MigrationsList
+import my.noveldokusha.feature.local_database.migrations._1stKissNovelDomainChange_1_org
+import my.noveldokusha.feature.local_database.migrations.readLightNovelDomainChange_1_today
+import my.noveldokusha.feature.local_database.migrations.readLightNovelDomainChange_2_meme
+import my.noveldokusha.feature.local_database.migrations.wuxiaDomainChange_blog_to_click
 
 internal fun databaseMigrations() = arrayOf(
     migration(1) {
