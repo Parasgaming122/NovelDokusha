@@ -61,14 +61,19 @@ jobs:
         run: |
           COMMITS=$(git rev-list --count HEAD)
           NEW_VC=$((1000 + COMMITS))
-          python3 - <<PY
-          import re, pathlib
+          export NEW_VC COMMITS
+
+          python3 - <<'PY'
+          import os, re, pathlib
+          new_vc = os.environ["NEW_VC"]
+          commits = os.environ["COMMITS"]
           p = pathlib.Path("app/build.gradle.kts")
           s = p.read_text()
-          s = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {NEW_VC}', s, count=1)
-          s = re.sub(r'versionName\s*=\s*"[^"]*"', f'versionName = "2.2.9-dev{COMMITS}-full"', s, count=1)
+          s = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {new_vc}', s, count=1)
+          s = re.sub(r'versionName\s*=\s*"[^"]*"', f'versionName = "2.2.9-dev{commits}-full"', s, count=1)
           p.write_text(s)
           PY
+
           echo "Bumped versionCode to $NEW_VC, versionName to 2.2.9-dev${COMMITS}-full"
 
       - name: Build Full Debug APK

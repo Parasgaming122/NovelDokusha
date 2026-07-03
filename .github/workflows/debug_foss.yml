@@ -72,15 +72,20 @@ jobs:
           # release installs of the same app.
           COMMITS=$(git rev-list --count HEAD)
           NEW_VC=$((1000 + COMMITS))
+          export NEW_VC COMMITS
 
           # Patch app/build.gradle.kts in place. Use python so the regex is
-          # tolerant of whitespace around `=`.
-          python3 - <<PY
-          import re, pathlib
+          # tolerant of whitespace around `=`. Values are passed via env vars
+          # (NOT bash expansion) so the heredoc can be quoted — this avoids
+          # f-string / shell-variable confusion.
+          python3 - <<'PY'
+          import os, re, pathlib
+          new_vc = os.environ["NEW_VC"]
+          commits = os.environ["COMMITS"]
           p = pathlib.Path("app/build.gradle.kts")
           s = p.read_text()
-          s = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {NEW_VC}', s, count=1)
-          s = re.sub(r'versionName\s*=\s*"[^"]*"', f'versionName = "2.2.9-dev{COMMITS}"', s, count=1)
+          s = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {new_vc}', s, count=1)
+          s = re.sub(r'versionName\s*=\s*"[^"]*"', f'versionName = "2.2.9-dev{commits}"', s, count=1)
           p.write_text(s)
           PY
 
