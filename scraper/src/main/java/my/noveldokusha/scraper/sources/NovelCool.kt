@@ -216,10 +216,10 @@ class NovelCool(
             .distinctBy { it.url }
 
         // Check for pagination
-        val isLast = doc.selectFirst("a.next[href]") == null && 
-                     doc.selectFirst(".pagination a[rel=next]") == null
+        val isLast = (doc.selectFirst("a.next[href]") == null) &&
+                     (doc.selectFirst(".pagination a[rel=next]") == null)
 
-        PagedList(
+        return PagedList(
             list = books,
             index = index,
             isLastPage = isLast || books.isEmpty()

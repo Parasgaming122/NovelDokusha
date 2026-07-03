@@ -43,9 +43,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "my.noveldokusha"
-        versionCode = 18
-        versionName = "2.2.0"
+        // IMPORTANT: applicationId MUST stay "com.paras.noveldokusha".
+        // Do NOT revert to "my.noveldokusha" — the v2.2.x release line is published
+        // under this ID and changing it breaks update compatibility and forces a
+        // fresh install on every device. See BUILD.md §Precautions.
+        applicationId = "com.paras.noveldokusha"
+        versionCode = 22
+        versionName = "2.2.9"
         setProperty("archivesBaseName", "NovelDokusha_v$versionName")
     }
 
@@ -55,6 +59,14 @@ android {
             storePassword = defaultSigningConfigData.getProperty("storePassword")
             keyAlias = defaultSigningConfigData.getProperty("keyAlias")
             keyPassword = defaultSigningConfigData.getProperty("keyPassword")
+            // AGP 8.2 ignores these flags when minSdk >= 24 — release APKs MUST be
+            // re-signed manually with apksigner (v1+v2) to keep TV/OEM package
+            // installers working. See BUILD.md §Signing. The flags are kept here
+            // as documentation; they do not override AGP's default behavior.
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = false
+            enableV4Signing = false
         }
     }
 

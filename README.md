@@ -72,6 +72,21 @@ break the package installer on Android TV devices and some phones. See
 [BUILD.md §4](BUILD.md#4-signing-the-apk-v1--v2) for the full signing
 procedure and the manual re-sign script.
 
+### CI / GitHub Actions
+
+Four workflows live under `.github/workflows/`, one per flavor × build-type:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `debug_foss.yml` | push, PR, manual | Builds a debug FOSS APK with `versionCode = 1000 + commit-count` (smoke test) |
+| `debug_full.yml` | manual | Builds a debug Full APK (translator codepaths) |
+| `release_foss.yml` | manual | Builds, **v1+v2 signs**, verifies, and publishes a FOSS release |
+| `release_full.yml` | manual | Builds, **v1+v2 signs**, verifies, and publishes a Full release |
+
+Both release workflows **fail-fast** if (a) v1 signing is missing, or
+(b) `applicationId != com.paras.noveldokusha`. See
+[BUILD.md §8](BUILD.md#8-ci--github-actions) for details.
+
 ## Sources
 
 See [docs/SOURCES.md](docs/SOURCES.md) for the full list of supported sources,

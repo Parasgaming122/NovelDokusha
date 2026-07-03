@@ -244,10 +244,10 @@ class WuxiaBox(
             }
             .distinctBy { it.url }
 
-        val isLast = doc.selectFirst("a.next[href]") == null &&
-                     doc.selectFirst(".pagination a[rel=next]") == null
+        val isLast = (doc.selectFirst("a.next[href]") == null) &&
+                     (doc.selectFirst(".pagination a[rel=next]") == null)
 
-        PagedList(
+        return PagedList(
             list = books,
             index = index,
             isLastPage = isLast || books.isEmpty()

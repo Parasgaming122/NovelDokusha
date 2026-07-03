@@ -522,12 +522,40 @@ unzip -l "$APK" | grep META-INF
 
 ### 7.1 Never change the applicationId after publishing
 
+**⚠️ This rule has been violated multiple times by automated edits and
+environment resets. Read it twice.**
+
 The `applicationId` (`com.paras.noveldokusha`) is the app's identity on
 the device and on Google Play. Changing it makes Android treat the new
 build as a completely different app — users can't upgrade, and data from
 the old app is orphaned.
 
-If you must change it (e.g., rebranding), you have two options:
+The original upstream project used `applicationId = "my.noveldokusha"`.
+The v2.2.x release line is published under `com.paras.noveldokusha`.
+**Do not revert to `my.noveldokusha`**, even if:
+
+- A tool / IDE / formatter offers to "fix" it back to match the `namespace`.
+- An environment reset wipes your working tree and the file reverts to
+  upstream's `my.noveldokusha`.
+- You're rebasing / merging from upstream and the merge brings back
+  `my.noveldokusha`.
+
+The correct value is **always**:
+```kotlin
+applicationId = "com.paras.noveldokusha"
+```
+
+The `namespace` (used internally for `R` and `BuildConfig` generation)
+remains `my.noveldokusha` — these are two different fields and the
+mismatch is intentional. See §7.4.
+
+Both release workflows (`release_foss.yml`, `release_full.yml`) include
+a **fail-fast check** that aborts the build if `applicationId` is not
+`com.paras.noveldokusha`. This is your safety net — but you should still
+verify it locally before pushing, because the fail-fast wastes ~1 minute
+of CI time per failure.
+
+If you must change `applicationId` (e.g., rebranding), you have two options:
 1. **Migration build**: Ship a final version of the old app that exports
    its database to a known location, then have the new app import it on
    first launch.
@@ -548,6 +576,64 @@ lose it:
 
 **Back up the keystore to at least two locations** (e.g., a password
 manager attachment + an encrypted USB drive + a cloud storage bucket).
+
+### 7.2.1 Never ship a release APK without v1 (JAR) signing
+
+**⚠️ This rule was violated once. It broke users' package installers on
+Android TV and Android phones. Read it twice.**
+
+A release APK **must** be signed with **both** v1 (JAR) and v2 (APK
+Signature Scheme v2). v2-only APKs install fine on stock Pixel Android
+but **break the package installer on many TV / OEM Android forks**:
+
+- Android TV (multiple vendors)
+- MIUI (Xiaomi)
+- EMUI (Huawei)
+- Some AOSP-derived TV box firmware
+
+When a v2-only APK is sideloaded on these devices, the package installer
+may report "parsing error" / "corrupt APK" / "App not installed" — and
+worse, in some firmware versions, the installer itself gets into a bad
+state and **fails to install other APKs afterward**, requiring a device
+reboot or factory reset to recover. This is the "package installer
+breakage" reported by users after the v2.2.8 release.
+
+The root cause: **AGP 8.2 skips v1 signing by default when `minSdk >= 24`**,
+producing v2-only APKs. The `enableV1Signing = true` flag in
+`app/build.gradle.kts` does NOT override this — AGP 8.2 ignores it.
+
+The fix: **always re-sign release APKs manually with `apksigner`**:
+
+```bash
+apksigner sign \
+  --ks <keystore> --ks-key-alias <alias> \
+  --ks-pass pass:<pass> --key-pass pass:<pass> \
+  --v1-signing-enabled true \
+  --v2-signing-enabled true \
+  --v3-signing-enabled false \
+  --v4-signing-enabled false \
+  --min-sdk-version 23 \
+  --out <signed.apk> <aligned.apk>
+```
+
+Then verify with:
+```bash
+apksigner verify --verbose --min-sdk-version 23 <apk>
+# MUST show:
+#   Verified using v1 scheme (JAR signing): true
+#   Verified using v2 scheme (APK Signature Scheme v2): true
+```
+
+(The `--min-sdk-version 23` flag on `verify` is critical — without it,
+`apksigner` skips v1 verification when v2 is present and `minSdk >= 24`,
+producing a false-negative `v1 = false`.)
+
+Both release workflows in this repo (`release_foss.yml`, `release_full.yml`)
+do the manual re-sign automatically and **fail-fast** if v1 signing is
+missing. See §8.3.
+
+**Never** ship a release APK that you haven't verified has v1 signing.
+This is the single highest-risk step in the release process.
 
 ### 7.3 Never commit `local.properties`
 
@@ -627,15 +713,31 @@ Look for the `toTranslateUrl()` function and the
 
 ## 8. CI / GitHub Actions
 
-The project ships three workflows:
+The project ships **four workflows**, one per flavor × build-type combination.
+This is intentional — it keeps each workflow small, makes failures easy to
+attribute, and lets you trigger only the build you actually need.
 
-| Workflow | File | Trigger | Purpose |
+| Workflow | File | Trigger | Outputs |
 |----------|------|---------|---------|
-| Build APK | `.github/workflows/build-apk.yml` | push, PR, manual | Builds all 4 APK variants + runs unit tests |
-| Publish Release | `.github/workflows/buildRelease.yml` | manual only | Builds signed release APK + creates GitHub Release |
-| UI Tests | `.github/workflows/ui_test.yml` | manual only | Runs instrumented tests on an Android emulator |
+| Debug FOSS | `.github/workflows/debug_foss.yml` | push, PR, manual | Debug FOSS APK artifact (versionCode = 1000 + commit count) |
+| Debug Full | `.github/workflows/debug_full.yml` | manual only | Debug Full APK artifact |
+| Release FOSS | `.github/workflows/release_foss.yml` | manual only | Signed release FOSS APK + GitHub Release (`vX.Y.Z-foss` tag) |
+| Release Full | `.github/workflows/release_full.yml` | manual only | Signed release Full APK + GitHub Release (`vX.Y.Z-full` tag) |
 
-### 8.1 Required GitHub Secrets (for release signing)
+### 8.1 Why four workflows?
+
+- **Debug FOSS auto-runs on every commit** so broken merges are caught
+  immediately. It bumps `versionCode` to `1000 + commit-count` so each
+  commit produces a unique APK that can be sideloaded over the previous
+  one without "package conflict" errors.
+- **Debug Full is manual** because it pulls in the Gemini / Google
+  Translate codepaths and takes longer. Trigger it only when you actually
+  need to test translator behavior.
+- **Release FOSS / Full are manual** because release builds require the
+  signing keystore (which lives in GitHub Secrets) and create a public
+  GitHub Release.
+
+### 8.2 Required GitHub Secrets (for release signing)
 
 Set these in your repo's Settings → Secrets and variables → Actions:
 
@@ -646,30 +748,109 @@ Set these in your repo's Settings → Secrets and variables → Actions:
 | `ALIAS` | Key alias (e.g., `noveldokusha`) |
 | `KEY_PASSWORD` | Key password |
 
-### 8.2 The `buildRelease.yml` v1+v2 signing step
+If any of these are missing, the release workflow will fail-fast with a
+clear error message at the "Setup APK signing keystore" step.
 
-The release workflow runs the Gradle build, then re-signs the APK with
-`apksigner` to guarantee v1+v2 signing (the Gradle `enableV1Signing`
-flag is unreliable in AGP 8.2). See the workflow file for the exact
-commands.
+### 8.3 Fail-fast verifications built into every release workflow
 
-### 8.3 CI runner requirements
+Every release workflow runs three verification steps **after** signing.
+If any of them fail, the workflow aborts and **no GitHub Release is
+created**. This is what prevents broken APKs from reaching users.
 
-- **OS**: Ubuntu 22.04 or later (the workflows use `ubuntu-latest`).
+1. **v1 (JAR) signing present** — `apksigner verify --verbose
+   --min-sdk-version 23` must show `Verified using v1 scheme (JAR
+   signing): true`. If this fails, the workflow aborts with an error
+   explaining that TV/OEM package installers will break.
+2. **v2 (APK Signature Scheme v2) signing present** — same verify command
+   must show `Verified using v2 scheme (APK Signature Scheme v2): true`.
+3. **applicationId == `com.paras.noveldokusha`** — `aapt dump badging`
+   must show `package: name='com.paras.noveldokusha'`. If this fails,
+   the workflow aborts with an error explaining that the applicationId
+   has been reverted.
+
+There is also a **pre-build** fail-fast check that greps
+`app/build.gradle.kts` for `applicationId = "com.paras.noveldokusha"`
+before any build step runs — so you don't waste 20 minutes of CI time
+building an APK that will be rejected anyway.
+
+### 8.4 The v1+v2 re-sign step
+
+The release workflows run the Gradle build, then **re-sign the APK with
+`apksigner`** to guarantee v1+v2 signing. The Gradle `enableV1Signing`
+flag is unreliable in AGP 8.2 (it silently produces v2-only APKs when
+`minSdk >= 24`), so the manual re-sign is mandatory.
+
+The exact commands are in the workflow files (`.github/workflows/release_*.yml`,
+the "Re-sign APK with v1 + v2 signature" step). See §4.3 of this document
+for the equivalent local commands.
+
+### 8.5 The "Could not find or load main class GradleWrapperMain" CI error
+
+If CI fails with:
+
+```
+Error: Could not find or load main class org.gradle.wrapper.GradleWrapperMain
+Caused by: java.lang.ClassNotFoundException: org.gradle.wrapper.GradleWrapperMain
+```
+
+…then `gradle/wrapper/gradle-wrapper.jar` is missing or empty on the
+runner. Causes and fixes:
+
+1. **The jar was accidentally gitignored or removed.** Verify locally:
+   ```bash
+   git ls-files gradle/wrapper/gradle-wrapper.jar
+   # Must print: gradle/wrapper/gradle-wrapper.jar
+   ```
+   If it prints nothing, the jar isn't tracked — re-add it:
+   ```bash
+   git add gradle/wrapper/gradle-wrapper.jar
+   git commit -m "Re-add gradle-wrapper.jar"
+   git push
+   ```
+
+2. **The jar was committed as a text file and got mangled by line-ending
+   conversion.** Add a `.gitattributes` entry:
+   ```
+   gradle/wrapper/gradle-wrapper.jar binary
+   ```
+
+3. **The workflow runs `./gradlew` from the wrong directory.** All four
+   workflows in this project use `actions/checkout@v4` followed by
+   `chmod +x ./gradlew` and a `test -s gradle/wrapper/gradle-wrapper.jar`
+   guard, so they fail with a clear error message before invoking
+   `./gradlew` if the jar is missing.
+
+All four workflows in this repo include the guard:
+```yaml
+- name: Verify gradle wrapper is present
+  run: |
+    chmod +x ./gradlew
+    if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then
+      echo "::error::gradle/wrapper/gradle-wrapper.jar is missing or empty."
+      exit 1
+    fi
+```
+
+### 8.6 CI runner requirements
+
+- **OS**: Ubuntu 22.04 or later (`ubuntu-latest` works).
 - **RAM**: 7 GB+ (GitHub-hosted runners have 7 GB, which is enough but
   tight — the build will OOM on smaller runners).
 - **Disk**: 10 GB+ free (Android SDK + Gradle cache + build outputs).
 
-### 8.4 CI cache strategy
+### 8.7 CI cache strategy
 
-The `build-apk.yml` workflow caches:
-- `~/.gradle/caches` and `~/.gradle/wrapper` — keyed on
-  `hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml')`.
-- The `actions/setup-java` cache for Gradle dependencies.
+Each workflow caches `~/.gradle/caches` and `~/.gradle/wrapper` under a
+workflow-specific key (e.g. `gradle-release-full-...`). The key includes
+the hash of `**/*.gradle*`, `**/gradle-wrapper.properties`, and
+`**/libs.versions.toml`, so changing any of those invalidates the cache
+automatically.
 
-If you change `libs.versions.toml`, the cache key changes and a fresh
-cache is built. Don't manually clear the cache unless you see stale-cache
-errors.
+The `actions/setup-java` action also caches Gradle dependencies under
+its own key.
+
+Don't manually clear the cache unless you see stale-cache errors (e.g.,
+"method not found" on a class that definitely has that method).
 
 ---
 
