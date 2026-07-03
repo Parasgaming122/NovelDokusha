@@ -1,21 +1,16 @@
-name: CI Compile Check
-
-# -----------------------------------------------------------------------------
-# Lightweight compile verification on every push / PR.
-# Builds only the debug APK for ONE flavor (fastest signal that the code
-# compiles). For signed release APKs and GitHub releases, use the
-# "Build & Release Signed APK" workflow (build-release-manual.yml) instead.
-# -----------------------------------------------------------------------------
+name: Build APK
 
 on:
   push:
     branches: [ master, main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ master, main ]
+  workflow_dispatch:
 
 jobs:
-  compile-check:
-    name: Compile Check (FOSS Debug)
+  build:
+    name: Build Debug & Release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -29,29 +24,65 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: gradle
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle
+        uses: gradle/gradle-build-action@v3
         with:
           gradle-version: wrapper
-          cache-read-only: ${{ github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      - name: Build debug APK (FOSS flavor only — fastest compile signal)
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Build debug APK (FOSS flavor)
         run: ./gradlew assembleFossDebug --no-daemon --stacktrace
 
-      - name: Upload debug APK
+      - name: Build release APK (FOSS flavor)
+        run: ./gradlew assembleFossRelease --no-daemon --stacktrace
+
+      - name: Build debug APK (Full flavor)
+        run: ./gradlew assembleFullDebug --no-daemon --stacktrace
+
+      - name: Build release APK (Full flavor)
+        run: ./gradlew assembleFullRelease --no-daemon --stacktrace
+
+      - name: Run unit tests
+        run: ./gradlew test --no-daemon --stacktrace
+        continue-on-error: true
+
+      - name: Upload debug APKs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: foss-debug-apk
-          path: app/build/outputs/apk/foss/debug/*.apk
+          name: APKs-debug
+          path: |
+            app/build/outputs/apk/foss/debug/*.apk
+            app/build/outputs/apk/full/debug/*.apk
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 30
 
-      - name: Upload build reports on failure
+      - name: Upload release APKs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: APKs-release
+          path: |
+            app/build/outputs/apk/foss/release/*.apk
+            app/build/outputs/apk/full/release/*.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build reports
         uses: actions/upload-artifact@v4
         if: failure()
         with:

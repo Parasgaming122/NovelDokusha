@@ -145,10 +145,10 @@ class TimoTxt(
                     )
                 }
 
-            val hasNextPage = doc.selectFirst("a.next, .pagination .next, .pager a:contains(下一頁)") != null ||
-                doc.select(".pagination li, .pager li").let { pages ->
-                    pages.isNotEmpty() && !(pages.last()?.hasClass("active") ?: false)
-                }
+            val hasNextPage = doc.selectFirst("a.next, .pagination .next, .pager a:contains(下一頁)")
+                != null || doc.select(".pagination li, .pager li").let { pages ->
+                pages.isNotEmpty() && !pages.last()?.hasClass("active")!!
+            }
 
             PagedList(
                 list = books,
