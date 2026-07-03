@@ -199,4 +199,6 @@
     <string name="cloudfare_firewall_failed_bypass">Cloudfare firewall failed bypass</string>
     <string name="tried_but_failed_to_bypass_cloudfare_firewall">Tried but failed to bypass cloudfare firewall</string>
         <string name="features_reader_full_screen">Full screen</string>
+    <string name="switch_source">Switch source</string>
+    <string name="switch_source_dialog_title">Open in another TimoTxt source</string>
 </resources>

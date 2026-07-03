@@ -129,25 +129,34 @@ class TimoTxt(
     ): Response<PagedList<BookResult>> = withContext(Dispatchers.Default) {
         tryConnect {
             val page = index + 1
+            // CRITICAL: catalogUrl already ends with /bookstack/ (trailing
+            // slash). Without the trailing slash the site returns a 404 and
+            // the catalog appears empty.
             val url = catalogUrl.toUrlBuilderSafe()
                 .add("page", page.toString())
                 .toString()
 
             val doc = networkClient.get(url).toDocument()
-            val books = doc.select(".book-list li, .book-list .item, .list-item")
+            // Verified selector: ul.list.flex > li
+            // Each li has: <a href="/{id}/"><img.../></a> and <h3><a href>title</a></h3>
+            val books = doc.select("ul.list.flex > li")
                 .mapNotNull {
-                    val link = it.selectFirst("a[href]") ?: return@mapNotNull null
+                    val link = it.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
                     val cover = it.selectFirst("img[src]")?.attr("src") ?: ""
+                    val title = link.text().trim()
+                    if (title.isBlank()) return@mapNotNull null
                     BookResult(
-                        title = link.text().trim(),
+                        title = title,
                         url = URI(baseUrl).resolve(link.attr("href")).toString(),
                         coverImageUrl = cover
                     )
                 }
 
-            val hasNextPage = (doc.selectFirst("a.next, .pagination .next, .pager a:contains(下一頁)") != null) ||
-                doc.select(".pagination li, .pager li").let { pages ->
-                    pages.isNotEmpty() && !pages.last()?.hasClass("active")!!
+            // Pagination: .pagination-list > a with hrefs like /bookstack/?page=2
+            val hasNextPage = (doc.selectFirst("a:contains(»), a:contains(下一頁), a.next") != null) ||
+                doc.select(".pagination-list a").let { pages ->
+                    val lastNum = pages.mapNotNull { it.text().trim().toIntOrNull() }.maxOrNull() ?: 1
+                    lastNum > page
                 }
 
             PagedList(
@@ -188,18 +197,23 @@ class TimoTxt(
                 )
             }
 
-            // Search on the catalog page
-            val url = catalogUrl.toUrlBuilderSafe()
-                .add("keyword", input)
+            // Search endpoint: /search/{keyword}
+            // (Cloudflare-protected — the interceptor handles the challenge
+            // automatically on-device.)
+            val url = baseUrl.toUrlBuilderSafe()
+                .addPath("search")
+                .addPath(input)
                 .toString()
 
             val doc = networkClient.get(url).toDocument()
-            val books = doc.select(".book-list li, .book-list .item, .list-item, .search-result li")
+            val books = doc.select("ul.list.flex > li")
                 .mapNotNull {
-                    val link = it.selectFirst("a[href]") ?: return@mapNotNull null
+                    val link = it.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
                     val cover = it.selectFirst("img[src]")?.attr("src") ?: ""
+                    val title = link.text().trim()
+                    if (title.isBlank()) return@mapNotNull null
                     BookResult(
-                        title = link.text().trim(),
+                        title = title,
                         url = URI(baseUrl).resolve(link.attr("href")).toString(),
                         coverImageUrl = cover
                     )

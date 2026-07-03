@@ -321,10 +321,12 @@ class TimoTxtGemini(
             }
 
             val doc = networkClient.get(url).toDocument()
-            val rawBooks = doc.select(".flex li, .list li").mapNotNull { item ->
-                val link = item.selectFirst("a[href]") ?: return@mapNotNull null
+            // Verified selector: ul.list.flex > li
+            val rawBooks = doc.select("ul.list.flex > li").mapNotNull { item ->
+                val link = item.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
                 val cover = item.selectFirst("img[src]")?.attr("src") ?: ""
-                val rawTitle = link.attr("title").ifBlank { link.text() }
+                val rawTitle = link.text().trim()
+                if (rawTitle.isBlank()) return@mapNotNull null
 
                 Triple(rawTitle, link.attr("href"), cover)
             }
@@ -352,7 +354,8 @@ class TimoTxtGemini(
             PagedList(
                 list = books,
                 index = index,
-                isLastPage = doc.selectFirst("a.next") == null &&
+                isLastPage = doc.selectFirst("a:contains(»)") == null &&
+                        doc.selectFirst("a.next") == null &&
                         doc.selectFirst(".pagination .next") == null
             )
         }
@@ -403,10 +406,11 @@ class TimoTxtGemini(
                 .toString()
 
             val doc = networkClient.get(searchUrl).toDocument()
-            val rawBooks = doc.select(".flex li, .list li, .chaplist li").mapNotNull { item ->
-                val link = item.selectFirst("a[href]") ?: return@mapNotNull null
+            val rawBooks = doc.select("ul.list.flex > li").mapNotNull { item ->
+                val link = item.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
                 val cover = item.selectFirst("img[src]")?.attr("src") ?: ""
-                val rawTitle = link.attr("title").ifBlank { link.text() }
+                val rawTitle = link.text().trim()
+                if (rawTitle.isBlank()) return@mapNotNull null
                 Triple(rawTitle, link.attr("href"), cover)
             }
 

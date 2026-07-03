@@ -102,4 +102,50 @@ class Scraper @Inject constructor(
 
     fun getCompatibleDatabase(url: String): DatabaseInterface? =
         databasesList.find { url.isCompatibleWithBaseUrl(it.baseUrl) }
+
+    /**
+     * Find alternative sources that can serve the same book as [url].
+     *
+     * This enables the "switch source" feature: a novel favorited on one
+     * TimoTxt source (e.g. TimoTxt) can be opened in either of the other
+     * two TimoTxt variants (TimoTxtTranslate, TimoTxtGemini) because they
+     * all share the same path structure on timotxt.com
+     * (`/{novelId}/` and `/{novelId}/{chNum}.html`).
+     *
+     * The three TimoTxt sources use distinct baseUrls for routing:
+     *   - TimoTxt:           `https://www.timotxt.com/`
+     *   - TimoTxtTranslate:  `https://www-timotxt-com.translate.goog/`
+     *   - TimoTxtGemini:     `https://www-timotxt-com-gemini.goog/`
+     *
+     * To convert a URL from one source to another, we extract the path
+     * (`/{novelId}/...`) and prepend the target source's baseUrl.
+     *
+     * Returns a list of (source, convertedUrl) pairs, EXCLUDING the current
+     * source. Returns an empty list if the URL doesn't belong to a TimoTxt
+     * source or there are no alternatives.
+     */
+    fun getAlternativeSources(url: String): List<Pair<SourceInterface.Catalog, String>> {
+        // The three TimoTxt source IDs. All share the same URL path structure.
+        val timotxtSourceIds = setOf("timotxt", "timotxt_translate", "timotxt_gemini")
+
+        val currentSource = getCompatibleSourceCatalog(url) ?: return emptyList()
+        if (currentSource.id !in timotxtSourceIds) return emptyList()
+
+        // Extract the path portion: everything after the host.
+        // e.g. "https://www.timotxt.com/0910595344/dir" → "/0910595344/dir"
+        val path = runCatching {
+            val uri = android.net.Uri.parse(url)
+            val p = uri.path ?: return emptyList()
+            // Uri.path returns "/0910595344/dir" — already starts with /
+            if (p.isEmpty()) return emptyList()
+            p
+        }.getOrNull() ?: return emptyList()
+
+        return sourcesCatalogsList
+            .filter { it.id in timotxtSourceIds && it.id != currentSource.id }
+            .map { source ->
+                val convertedUrl = source.baseUrl.trimEnd('/') + path
+                source to convertedUrl
+            }
+    }
 }
