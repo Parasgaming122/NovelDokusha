@@ -3,6 +3,11 @@
 Android web novel reader. Reader focused on simplicity, improving reading immersion.
 Search from a large catalog of content, open your pick and just enjoy.
 
+**Current version**: 2.2.9 (versionCode 22)  
+**Application ID**: `com.paras.noveldokusha`  
+**Min Android**: 8.0 (API 26)  
+**Target Android**: 14 (API 34)
+
 ## Features
   - Multiple sources from where to read novels (28 online sources across 3
     languages + 1 local EPUB source)
@@ -22,66 +27,50 @@ Search from a large catalog of content, open your pick and just enjoy.
   - Multi-tier Cloudflare evasion (browser-headers + headless WebView with
     Turnstile click, force-re-navigation, and IP-block fast-fail; inspired by
     the [trawl](https://github.com/germondai/trawl) project)
+  - TimoTxt sources use a `translate.goog` proxy pipeline to bypass
+    Cloudflare and translate Chinese novels to English in real time
+    (two variants: Google Translate API and Gemini AI)
 
 ## Build
 
-### Prerequisites
-- JDK 17
-- Android SDK (API 34+, build-tools 34.0.0)
-- Gradle 8.x (wrapper included)
+See [BUILD.md](BUILD.md) for the complete build guide, including:
+- Environment setup (JDK 17, Android SDK, keystore)
+- Common build errors and their fixes
+- APK signing with v1 + v2 schemes (required for Android TV compatibility)
+- Precautions around the keystore and applicationId
+- CI / GitHub Actions integration
+
+### Quick start
+
+```bash
+# Prerequisites
+export JAVA_HOME=$HOME/jdk17        # JDK 17 (not 21!)
+export ANDROID_HOME=$HOME/android-sdk
+export PATH=$JAVA_HOME/bin:$ANDROID_HOME/build-tools/34.0.0:$PATH
+
+# Create local.properties with keystore info (see BUILD.md §2.3)
+
+# Build release APK (full flavor with MLKit + Gemini translation)
+./gradlew assembleFullRelease --no-daemon --no-configuration-cache --console=plain
+
+# The APK appears at:
+# app/build/outputs/apk/full/release/NovelDokusha_v2.2.9-full-release.apk
+```
 
 ### Build flavors
 
-The app has two product flavors:
-
 | Flavor | Translation backend | Notes |
 |--------|--------------------|-------|
-| `full` | Google MLKit | Includes on-device translation models |
+| `full` | Google MLKit + Gemini AI | Includes on-device translation models. **Recommended.** |
 | `foss` | No translation | Pure FOSS build, no proprietary dependencies |
-
-### Build commands
-
-```bash
-# Debug APK (FOSS flavor)
-./gradlew assembleFossDebug
-
-# Release APK (FOSS flavor)
-./gradlew assembleFossRelease
-
-# Debug APK (Full flavor)
-./gradlew assembleFullDebug
-
-# Release APK (Full flavor)
-./gradlew assembleFullRelease
-
-# All variants
-./gradlew assemble
-
-# Run unit tests
-./gradlew test
-```
-
-The built APKs are placed under `app/build/outputs/apk/<flavor>/<build-type>/`.
-
-### GitHub Actions CI
-
-A GitHub Actions workflow (`.github/workflows/build-apk.yml`) is included. It
-builds all four APK variants (foss/full × debug/release) on every push and pull
-request, and uploads the APKs as build artifacts.
 
 ### Signing
 
-To sign the release build, create a `local.properties` file in the project root:
-
-```properties
-storeFile=/path/to/keystore.jks
-storePassword=your-store-password
-keyAlias=your-key-alias
-keyPassword=your-key-password
-```
-
-If no signing config is provided, the release build will be unsigned (you can
-still build it, but you'll need to sign it manually before installation).
+**Critical**: The release APK must be signed with **both v1 (JAR) and v2
+(APK Signature Scheme v2)** schemes. AGP 8.2 defaults to v2-only, which can
+break the package installer on Android TV devices and some phones. See
+[BUILD.md §4](BUILD.md#4-signing-the-apk-v1--v2) for the full signing
+procedure and the manual re-sign script.
 
 ## Sources
 
@@ -117,8 +106,10 @@ Read local EPUB files from device storage.
 
 ## Tech stack
   - Kotlin 1.9.23
+  - Android Gradle Plugin 8.2.2
+  - Gradle 8.2 (wrapper included)
   - Jetpack Compose + XML views
-  - Material 3
+  - Material 3 (v1.2.1)
   - Coroutines
   - LiveData
   - Room (SQLite) for storage
@@ -127,9 +118,16 @@ Read local EPUB files from device storage.
   - Coil + Glide (image loading)
   - Gson + Moshi + kotlinx.serialization
   - Google MLKit for translation (Full flavor)
+  - Google Gemini AI for chapter translation (TimoTxt Gemini source)
   - Android TTS
   - Android media (TTS playback notification controls)
   - Hilt (dependency injection)
+
+## Documentation
+
+- [BUILD.md](BUILD.md) — Complete build guide, common errors, signing, CI
+- [docs/SOURCES.md](docs/SOURCES.md) — Full list of supported sources and
+  Cloudflare bypass architecture
 
 ## License
 

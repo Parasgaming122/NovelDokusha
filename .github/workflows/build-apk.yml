@@ -26,11 +26,6 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Set up Gradle
-        uses: gradle/gradle-build-action@v3
-        with:
-          gradle-version: wrapper
-
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
@@ -45,20 +40,29 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Build debug APK (FOSS flavor)
-        run: ./gradlew assembleFossDebug --no-daemon --stacktrace
+        run: ./gradlew assembleFossDebug --no-daemon --no-configuration-cache --console=plain --stacktrace
 
       - name: Build release APK (FOSS flavor)
-        run: ./gradlew assembleFossRelease --no-daemon --stacktrace
+        run: ./gradlew assembleFossRelease --no-daemon --no-configuration-cache --console=plain --stacktrace
 
       - name: Build debug APK (Full flavor)
-        run: ./gradlew assembleFullDebug --no-daemon --stacktrace
+        run: ./gradlew assembleFullDebug --no-daemon --no-configuration-cache --console=plain --stacktrace
 
       - name: Build release APK (Full flavor)
-        run: ./gradlew assembleFullRelease --no-daemon --stacktrace
+        run: ./gradlew assembleFullRelease --no-daemon --no-configuration-cache --console=plain --stacktrace
 
       - name: Run unit tests
-        run: ./gradlew test --no-daemon --stacktrace
+        run: ./gradlew test --no-daemon --no-configuration-cache --console=plain
         continue-on-error: true
+
+      - name: Verify APK metadata
+        run: |
+          for apk in app/build/outputs/apk/full/release/*.apk app/build/outputs/apk/foss/release/*.apk; do
+            if [ -f "$apk" ]; then
+              echo "=== $apk ==="
+              $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$apk" | grep -E "package:|versionName|versionCode|application-label:" | head -3
+            fi
+          done
 
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
