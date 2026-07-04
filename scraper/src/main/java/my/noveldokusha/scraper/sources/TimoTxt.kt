@@ -152,12 +152,12 @@ class TimoTxt(
                     )
                 }
 
-            // Pagination: .pagination-list > a with hrefs like /bookstack/?page=2
-            val hasNextPage = (doc.selectFirst("a:contains(»), a:contains(下一頁), a.next") != null) ||
-                doc.select(".pagination-list a").let { pages ->
-                    val lastNum = pages.mapNotNull { it.text().trim().toIntOrNull() }.maxOrNull() ?: 1
-                    lastNum > page
-                }
+            // Pagination: the site serves <li class="next pagination-link">
+            // on every page except the last (where it's either absent or
+            // has the `disabled` class). The site loops around past the
+            // last page, so we MUST rely on the `next` link presence —
+            // not on "highest page number seen" — to detect the end.
+            val hasNextPage = doc.selectFirst("li.next.pagination-link:not(.disabled)") != null
 
             PagedList(
                 list = books,

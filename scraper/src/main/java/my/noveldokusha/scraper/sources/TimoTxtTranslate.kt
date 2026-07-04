@@ -289,10 +289,10 @@ class TimoTxtTranslate(
             val page = index + 1
             // CRITICAL: trailing slash on /bookstack/ — without it, the site
             // returns a 404 page and the catalog appears empty.
-            val url = originalBaseUrl.toUrlBuilderSafe()
-                .addPath("bookstack")
-                .add("page", page.toString())
-                .toString()
+            // Android's Uri.Builder.appendPath() strips trailing slashes, so
+            // we build the URL string directly (mirrors the Python script
+            // and the proven TimoTxt.kt catalog URL pattern).
+            val url = "${originalBaseUrl}bookstack/?page=$page"
 
             val doc = networkClient.get(url).toDocument()
 
@@ -313,14 +313,13 @@ class TimoTxtTranslate(
                 )
             }
 
-            // Pagination: .pagination-list > a with hrefs like /bookstack/?page=2
-            // "Last page" has no "Next" link (» / next).
-            val hasNextPage = (doc.selectFirst("a:contains(»), a:contains(下一頁), a.next") != null) ||
-                doc.select(".pagination-list a").let { pages ->
-                    // If the current page number is not the last numbered link
-                    val lastNum = pages.mapNotNull { it.text().trim().toIntOrNull() }.maxOrNull() ?: 1
-                    lastNum > page
-                }
+            // Pagination: the site serves <li class="next pagination-link">
+            // on every page except the last (where it's either absent or
+            // has the `disabled` class). The site also loops around past
+            // the last page (page 999 still returns books), so we MUST
+            // rely on the `next` link presence — not on "highest page
+            // number seen" — to detect the end.
+            val hasNextPage = doc.selectFirst("li.next.pagination-link:not(.disabled)") != null
 
             PagedList(
                 list = books,
