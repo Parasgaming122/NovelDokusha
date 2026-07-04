@@ -24,37 +24,42 @@ import org.jsoup.nodes.Document
 import java.net.URI
 
 /**
- * Auto-translating source for timotxt.com via the Google Translate free API.
+ * Auto-translating source for timotxt.com via the Google Translate proxy.
  *
- * **URL routing strategy**: This source uses a unique fake baseUrl
- * `https://www-timotxt-com.translate.goog/` so the app's `getCompatibleSource()`
- * can distinguish books belonging to this source from the plain `TimoTxt`
- * source (which uses `https://www.timotxt.com/`). All actual HTTP fetching
- * goes to the real `https://www.timotxt.com/` domain — the fake domain is
- * only used for URL storage and routing.
+ * **URL routing strategy**: This source uses
+ * `https://www-timotxt-com.translate.goog/` as its baseUrl. All HTTP
+ * fetching goes through the `translate.goog` proxy WITH the required
+ * `_x_tr_sl=zh-CN&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp` query params.
  *
- * **Cross-source transfer**: The three TimoTxt sources (TimoTxt,
- * TimoTxtTranslate, TimoTxtGemini) share the same path structure
- * (`/{novelId}/` and `/{novelId}/{chNum}.html`). A novel favorited on one
- * source can be opened in either of the other two by rewriting the URL's
- * host portion. See `Scraper.getAlternativeSources()`.
+ * **Why translate.goog?** The proxy:
+ *  1. Is hosted on Google's IPs — Cloudflare does NOT challenge Google,
+ *     so this bypasses CF entirely (no WebView solver needed).
+ *  2. Returns the **original Chinese HTML** to OkHttp (which doesn't
+ *     execute JavaScript). The app then translates the extracted text
+ *     via the Google Translate free API (`client=gtx`).
+ *  3. In a **WebView** (which DOES execute JavaScript), the proxy's
+ *     translation script runs and translates the page to English in
+ *     real-time. This is why stored URLs MUST include the `_x_tr_*`
+ *     params — without them the proxy returns HTTP 400 and the WebView
+ *     shows "can't translate this page".
  *
- * **Translation pipeline** (mirrors the proven `timotxt_extractor.py`):
- *   1. Fetch Chinese chapter HTML directly from `www.timotxt.com`.
+ * **Stored URLs**: All book/chapter URLs stored in the database include
+ * the `_x_tr_*` params. This ensures:
+ *  - OkHttp fetches succeed (proxy returns Chinese HTML)
+ *  - "Open in WebView" works (proxy JS translates to English)
+ *
+ * **Translation pipeline** (for OkHttp-fetched content):
+ *   1. Fetch Chinese HTML from translate.goog proxy (CF bypass).
  *   2. Extract text from `.content` div.
- *   3. Strip site notices (regex) — `溫馨提示.*`, `PS：.*`, etc.
- *   4. Remove Unicode garbage (Korean Hangul, rare CJK compat artifacts).
- *   5. Collapse whitespace.
- *   6. Split at Chinese/English sentence boundaries (`。！？」!?`).
- *   7. Group sentences into batches of ≤ 2000 chars.
- *   8. POST each batch to `translate.googleapis.com/translate_a/single`.
- *   9. Concatenate the translated batches with spaces.
+ *   3. Strip site notices and Unicode garbage.
+ *   4. Split at sentence boundaries, batch into ≤4500 char chunks.
+ *   5. POST each batch to Google Translate API.
+ *   6. Clean up English junk patterns.
  *
- * **Cloudflare handling**: all HTTP calls go through `networkClient`, which
- * has the `CloudfareVerificationInterceptor` in its interceptor chain. If
- * timotxt.com serves a CF challenge, the interceptor automatically fires up
- * a headless WebView, solves the challenge (including Turnstile clicks),
- * captures the clearance cookie, and retries the request.
+ * **Cross-source transfer**: The three TimoTxt sources share the same
+ * path structure (`/{novelId}/` and `/{novelId}/{chNum}.html`). A novel
+ * favorited on one source can be opened in either of the other two by
+ * rewriting the URL's host portion. See `Scraper.getAlternativeSources()`.
  */
 class TimoTxtTranslate(
     private val networkClient: NetworkClient
@@ -62,44 +67,30 @@ class TimoTxtTranslate(
     override val id = "timotxt_translate"
     override val nameStrId = R.string.source_name_timotxt_translate
 
-    /** Fake routing baseUrl — unique per source so getCompatibleSource() works. */
     override val baseUrl = "https://www-timotxt-com.translate.goog/"
     override val catalogUrl = "https://www-timotxt-com.translate.goog/"
     override val language = LanguageCode.ENGLISH
 
-    /** Real timotxt.com domain for all HTTP fetching. */
+    /** Real timotxt.com domain (for constructing proxy URLs). */
     private val originalBaseUrl = "https://www.timotxt.com/"
 
     companion object {
-        // ─── Translation API ────────────────────────────────────────────
+        // ─── Translate.goog proxy params ────────────────────────────────
+        /** Required query params for the translate.goog proxy. */
+        private const val TRANSLATE_PARAMS =
+            "_x_tr_sl=zh-CN&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp"
+
+        // ─── Google Translate API (for text translation) ───────────────
         private const val TRANSLATE_API_URL =
             "https://translate.googleapis.com/translate_a/single"
-        // Google Translate's free `client=gtx` endpoint accepts POST bodies
-        // well beyond the old 2000-char ceiling — testing confirms payloads of
-        // 5000+ characters return 200 OK with a full translation. 4500 gives
-        // us a comfortable safety margin while cutting the number of batches
-        // (and therefore network round-trips) by more than half versus the
-        // previous 2000-char limit.
         private const val BATCH_CHAR_LIMIT = 4500
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 1500L
         private const val TRANSLATE_DELAY_MS = 300L
 
-        // For non-critical translations (catalog titles, book descriptions)
-        // we use a single retry with a short delay so a flaky translate API
-        // never blocks browsing — the original Chinese text is shown instead.
         private const val TITLE_TRANSLATE_MAX_RETRIES = 1
-        private const val TITLE_TRANSLATE_RETRY_DELAY_MS = 500L
 
         // ─── Text cleaning ──────────────────────────────────────────────
-        /**
-         * Regex patterns to strip from extracted Chinese text BEFORE
-         * translation. Each pattern matches from its start marker to the
-         * end of the line/string — site notices, ads, and author
-         * postscript notes that shouldn't be translated.
-         *
-         * Mirrors `STRIP_PATTERNS` in `timotxt_extractor.py`.
-         */
         internal val STRIP_PATTERNS = listOf(
             Regex("溫馨提示.*"),
             Regex("網站即將改版.*"),
@@ -114,34 +105,24 @@ class TimoTxtTranslate(
             Regex("(?i)timotxt\\.com.*"),
         )
 
-        /**
-         * Whitelist of Unicode ranges to KEEP in the Chinese text.
-         * Everything else (Korean Hangul, rare CJK compat artifacts, etc.)
-         * is stripped. Mirrors the regex in `scrape_chapter()` in the
-         * Python script.
-         */
         internal val UNICODE_WHITELIST = Regex(
-            "[^\\u0000-\\u007F" +       // Basic Latin (ASCII)
-            "\\u00A0-\\u00FF" +          // Latin-1 Supplement
-            "\\u2000-\\u206F" +          // General Punctuation
-            "\\u3000-\\u303F" +          // CJK Symbols and Punctuation
-            "\\uFF00-\\uFFEF" +          // Fullwidth Forms
-            "\\u4E00-\\u9FFF" +          // CJK Unified Ideographs (main)
-            "\\u3400-\\u4DBF" +          // CJK Unified Ideographs Extension A
-            "\\uF900-\\uFAFF" +          // CJK Compatibility Ideographs
-            "\\u2E80-\\u2EFF" +          // CJK Radicals Supplement
-            "\\u2014\\u2013" +           // Em dash, en dash
-            "\\u201C\\u201D" +           // Left/Right double quotation marks
-            "\\u2018\\u2019" +           // Left/Right single quotation marks
-            "\\u2026" +                  // Horizontal ellipsis …
-            "\\u3001\\u3002" +           // Ideographic comma , full stop .
+            "[^\\u0000-\\u007F" +
+            "\\u00A0-\\u00FF" +
+            "\\u2000-\\u206F" +
+            "\\u3000-\\u303F" +
+            "\\uFF00-\\uFFEF" +
+            "\\u4E00-\\u9FFF" +
+            "\\u3400-\\u4DBF" +
+            "\\uF900-\\uFAFF" +
+            "\\u2E80-\\u2EFF" +
+            "\\u2014\\u2013" +
+            "\\u201C\\u201D" +
+            "\\u2018\\u2019" +
+            "\\u2026" +
+            "\\u3001\\u3002" +
             "]+"
         )
 
-        /**
-         * English junk text patterns to remove AFTER translation.
-         * Case-insensitive.
-         */
         internal val ENGLISH_JUNK_PATTERNS = listOf(
             Regex("(?i)warm reminder.*"),
             Regex("(?i)warm tip.*"),
@@ -154,10 +135,6 @@ class TimoTxtTranslate(
             Regex("(?i)timotxt\\.com.*"),
         )
 
-        /**
-         * Check if text is primarily CJK characters.
-         * Returns true if CJK ratio > 0.12
-         */
         fun isPrimarilyCJK(text: String): Boolean {
             if (text.isBlank()) return false
             val cjkCount = text.count { ch ->
@@ -177,44 +154,55 @@ class TimoTxtTranslate(
     // ─── URL handling ───────────────────────────────────────────────────
 
     /**
-     * Convert a stored (fake) translate.goog URL to the real timotxt.com URL
-     * for HTTP fetching. Also strips any Google Translate query params.
+     * Convert any URL (timotxt.com, translate.goog with/without params,
+     * or a relative path) to the canonical translate.goog proxy URL
+     * WITH the required `_x_tr_*` params.
+     *
+     * This is the single source of truth for URL construction. All
+     * fetches and all stored URLs go through this function, ensuring
+     * both OkHttp (Chinese HTML → app translates) and WebView (JS
+     * translates) work correctly.
      */
-    private fun resolveOriginalUrl(url: String): String {
-        return url
-            .replace("https://www-timotxt-com.translate.goog", originalBaseUrl.trimEnd('/'))
+    private fun toTranslateUrl(url: String): String {
+        if (url.isBlank()) return url
+
+        // Strip any existing translate params so we don't duplicate them
+        var cleanUrl = url
             .replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
             .replace("?&", "?")
             .replace(Regex("[?&]$"), "")
+            .trimEnd('&', '?')
+
+        // Convert timotxt.com URLs to translate.goog proxy URLs
+        cleanUrl = cleanUrl.replace(
+            "https://www.timotxt.com",
+            "https://www-timotxt-com.translate.goog"
+        )
+
+        // Add the required params
+        val separator = if (cleanUrl.contains("?")) "&" else "?"
+        return "$cleanUrl$separator$TRANSLATE_PARAMS"
     }
 
     /**
-     * Convert a stored (fake) translate.goog chapter URL back to the real
-     * timotxt.com URL before the reader fetches it.
+     * Transform chapter URL before fetching. Ensures the translate.goog
+     * proxy params are present so the proxy returns Chinese HTML (which
+     * the app then translates via the Google Translate API).
      *
-     * This is called by `DownloaderRepository.bookChapter()` which does:
-     *   `networkClient.get(source.transformChapterUrl(realUrl))`
-     * If we return the URL unchanged, OkHttp tries to fetch from
-     * `https://www-timotxt-com.translate.goog/...` — that host resolves to
-     * Google's servers but returns HTTP 400 without the `_x_tr_sl` /
-     * `_x_tr_tl` query params, so the chapter body is never retrieved.
-     *
-     * The translate.goog domain is only a routing key stored in the local
-     * database to keep this source's books distinct from the plain TimoTxt
-     * source; all real HTTP must go to `https://www.timotxt.com/`.
+     * Also used by the reader's "open in webview" feature — the same
+     * URL with params works in WebView (proxy JS translates to English).
      */
     override suspend fun transformChapterUrl(url: String): String =
-        resolveOriginalUrl(url)
+        toTranslateUrl(url)
 
     // ─── Chapter content ────────────────────────────────────────────────
 
     override suspend fun getChapterTitle(doc: Document): String? =
         withContext(Dispatchers.Default) {
-            val titleEl = doc.selectFirst("h1.imgtext, .chapter-content h1, .chapter-content .title, h1.chapter-title, h1")
-                ?: return@withContext null
+            val titleEl = doc.selectFirst(
+                "h1.imgtext, .chapter-content h1, .chapter-content .title, h1.chapter-title, h1"
+            ) ?: return@withContext null
             val titleCn = titleEl.text().trim()
-            // Chapter titles are short — use fast-fail so a slow translate
-            // API doesn't delay the reader. Falls back to the Chinese title.
             if (titleCn.isBlank()) null else translateTextFastFail(titleCn)
         }
 
@@ -248,14 +236,7 @@ class TimoTxtTranslate(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val fetchUrl = resolveOriginalUrl(bookUrl)
-            val doc = networkClient.get(fetchUrl).toDocument()
-            // The timotxt.com info page has the cover inside
-            //   <div class="col ... cover"><img src="https://i1.timotxt.com/thumb/v1/<id>.png" ...></div>
-            // There is no og:image meta tag and no .bookinfo-pic-img class —
-            // those selectors were copied from a different site template and
-            // never matched. The .cover img[src] selector is the one that
-            // actually works.
+            val doc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
             doc.selectFirst(".cover img[src]")
                 ?.attr("src")
                 ?: doc.selectFirst("meta[property=og:image]")
@@ -267,18 +248,13 @@ class TimoTxtTranslate(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val fetchUrl = resolveOriginalUrl(bookUrl)
-            val doc = networkClient.get(fetchUrl).toDocument()
+            val doc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
             val rawDesc = doc.selectFirst("meta[name=description]")
                 ?.attr("content")
                 ?.trim()
                 ?: doc.selectFirst(".intro, .desc, .bookinfo-detail .desc")
                     ?.let { TextExtractor.get(it).trim() }
             if (rawDesc.isNullOrBlank()) null
-            // Description translation is best-effort: if the Google Translate
-            // API is slow or rate-limited we fall back to the original Chinese
-            // text rather than blocking the info page for 10+ seconds while
-            // three retries time out.
             else translateTextFastFail(rawDesc)
         }
     }
@@ -287,34 +263,38 @@ class TimoTxtTranslate(
         bookUrl: String
     ): Response<List<ChapterResult>> = withContext(Dispatchers.Default) {
         tryConnect {
-            val fetchUrl = resolveOriginalUrl(bookUrl)
-            val dirUrl = fetchUrl.toUrlBuilderSafe()
-                .addPath("dir")
-                .toString()
+            val dirUrl = toTranslateUrl(
+                bookUrl.toUrlBuilderSafe().addPath("dir").toString()
+            )
 
             val doc = networkClient.get(dirUrl).toDocument()
 
-            // Verified selectors from the real /dir page:
-            //   .chaplist ul.all li a  → all chapter links (primary)
-            //   .chaplist ul li a      → fallback
-            //
             // The /dir page has TWO <ul> lists inside .chaplist:
-            //   1. ul.flex...three-900 (12 links, NEWEST first — sidebar)
-            //   2. ul.flex...three-900.all (all links, OLDEST first — complete list)
-            // The `.all` selector targets #2 which is already oldest-first,
-            // so no reversal is needed.
+            //   1. ul.flex (12 links, newest first — sidebar)
+            //   2. ul.flex.all (all links, oldest first — complete list)
+            // The `.all` selector targets #2 which is already oldest-first.
             val chapterLinks = doc.select(".chaplist ul.all li a[href]")
                 .takeIf { it.isNotEmpty() }
                 ?: doc.select(".chaplist ul li a[href]")
 
             val titles = chapterLinks.map { it.text().trim() }
-            val translatedTitles = translateBatchTitles(titles)
+            val translatedTitles = translateBatchTitles(
+                titles,
+                maxRetries = TITLE_TRANSLATE_MAX_RETRIES
+            )
 
             chapterLinks.mapIndexed { index, element ->
-                // Store chapter URLs with THIS source's baseUrl so the reader
-                // routes them back to TimoTxtTranslate (not TimoTxt).
-                val realUrl = URI(originalBaseUrl).resolve(element.attr("href")).toString()
-                val storedUrl = realUrl.replace(originalBaseUrl, baseUrl)
+                // The translate.goog proxy rewrites hrefs to include the
+                // _x_tr_* params automatically. Use the href as-is if it's
+                // already a translate.goog URL; otherwise construct one.
+                val href = element.attr("href")
+                val storedUrl = if (href.startsWith("http")) {
+                    toTranslateUrl(href)
+                } else {
+                    toTranslateUrl(
+                        URI(originalBaseUrl).resolve(href).toString()
+                    )
+                }
                 ChapterResult(
                     title = translatedTitles.getOrElse(index) { titles[index] },
                     url = storedUrl
@@ -330,32 +310,28 @@ class TimoTxtTranslate(
     ): Response<PagedList<BookResult>> = withContext(Dispatchers.Default) {
         tryConnect {
             val page = index + 1
-            // CRITICAL: trailing slash on /bookstack/ — without it, the site
-            // returns a 404 page and the catalog appears empty.
-            // Android's Uri.Builder.appendPath() strips trailing slashes, so
-            // we build the URL string directly (mirrors the Python script
-            // and the proven TimoTxt.kt catalog URL pattern).
-            val url = "${originalBaseUrl}bookstack/?page=$page"
+            // Fetch the /bookstack/ catalog page through the translate.goog
+            // proxy. The proxy bypasses Cloudflare (Google's IPs are not
+            // challenged) and returns Chinese HTML.
+            val url = toTranslateUrl("${originalBaseUrl}bookstack/?page=$page")
 
             val doc = networkClient.get(url).toDocument()
 
-            // Verified selector: ul.list.flex > li
-            // Each li contains: <a href="/{id}/"><img .../></a> and <h3><a href>title</a></h3>
             val rawBooks = doc.select("ul.list.flex > li").mapNotNull { li ->
                 val link = li.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
                 val cover = li.selectFirst("img[src]")?.attr("src") ?: ""
                 val originalTitle = link.text().trim()
                 if (originalTitle.isBlank()) return@mapNotNull null
-                val realUrl = URI(originalBaseUrl).resolve(link.attr("href")).toString()
-                val storedUrl = realUrl.replace(originalBaseUrl, baseUrl)
+                val href = link.attr("href")
+                // Store book URL as translate.goog with params
+                val storedUrl = if (href.startsWith("http")) {
+                    toTranslateUrl(href)
+                } else {
+                    toTranslateUrl(URI(originalBaseUrl).resolve(href).toString())
+                }
                 Triple(originalTitle, storedUrl, cover)
             }
 
-            // Batch-translate all titles in one go (joined with " ||| ")
-            // using fast-fail mode — if the Google Translate API is slow or
-            // rate-limited we fall back to the original Chinese titles
-            // immediately instead of blocking the catalog for 30+ seconds
-            // while 18 individual title translations each retry 3 times.
             val translatedTitles = translateBatchTitles(
                 rawBooks.map { it.first },
                 maxRetries = TITLE_TRANSLATE_MAX_RETRIES
@@ -369,12 +345,6 @@ class TimoTxtTranslate(
                 )
             }
 
-            // Pagination: the site serves <li class="next pagination-link">
-            // on every page except the last (where it's either absent or
-            // has the `disabled` class). The site also loops around past
-            // the last page (page 999 still returns books), so we MUST
-            // rely on the `next` link presence — not on "highest page
-            // number seen" — to detect the end.
             val hasNextPage = doc.selectFirst("li.next.pagination-link:not(.disabled)") != null
 
             PagedList(
@@ -393,9 +363,9 @@ class TimoTxtTranslate(
             if (input.isBlank() || index > 0)
                 return@tryConnect PagedList.createEmpty(index = index)
 
-            // Direct URL input: convert to this source's routing URL.
+            // Direct URL input: normalize and use as-is
             if (input.startsWith("http") && (input.contains("timotxt.com") || input.contains("translate.goog"))) {
-                val fetchUrl = resolveOriginalUrl(input)
+                val fetchUrl = toTranslateUrl(input)
                 val doc = networkClient.get(fetchUrl).toDocument()
                 val rawTitle = doc.selectFirst("h1, .book-name, .book-title")
                     ?.text()?.trim() ?: return@tryConnect PagedList.createEmpty(index)
@@ -403,12 +373,11 @@ class TimoTxtTranslate(
                     ?.attr("src")
                     ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
                     ?: ""
-                val storedUrl = fetchUrl.replace(originalBaseUrl, baseUrl)
                 return@tryConnect PagedList(
                     list = listOf(
                         BookResult(
                             title = translateTextFastFail(rawTitle),
-                            url = storedUrl,
+                            url = fetchUrl,
                             coverImageUrl = cover
                         )
                     ),
@@ -417,13 +386,13 @@ class TimoTxtTranslate(
                 )
             }
 
-            // Search endpoint: /search/{keyword}
-            // (Cloudflare-protected — the interceptor handles the challenge
-            // automatically on-device.)
-            val searchUrl = originalBaseUrl.toUrlBuilderSafe()
-                .addPath("search")
-                .addPath(input)
-                .toString()
+            // Search via translate.goog proxy
+            val searchUrl = toTranslateUrl(
+                originalBaseUrl.toUrlBuilderSafe()
+                    .addPath("search")
+                    .addPath(input)
+                    .toString()
+            )
 
             val doc = networkClient.get(searchUrl).toDocument()
             val rawBooks = doc.select("ul.list.flex > li").mapNotNull { li ->
@@ -431,8 +400,12 @@ class TimoTxtTranslate(
                 val cover = li.selectFirst("img[src]")?.attr("src") ?: ""
                 val originalTitle = link.text().trim()
                 if (originalTitle.isBlank()) return@mapNotNull null
-                val realUrl = URI(originalBaseUrl).resolve(link.attr("href")).toString()
-                val storedUrl = realUrl.replace(originalBaseUrl, baseUrl)
+                val href = link.attr("href")
+                val storedUrl = if (href.startsWith("http")) {
+                    toTranslateUrl(href)
+                } else {
+                    toTranslateUrl(URI(originalBaseUrl).resolve(href).toString())
+                }
                 Triple(originalTitle, storedUrl, cover)
             }
 
@@ -457,24 +430,8 @@ class TimoTxtTranslate(
         }
     }
 
-    // ─── Translation engine (mirrors timotxt_extractor.py) ──────────────
+    // ─── Translation engine ─────────────────────────────────────────────
 
-    /**
-     * Translate Chinese text to English using the Google Translate free API.
-     *
-     * Pipeline (identical to `translate_text()` in the Python script):
-     *   1. Split text at Chinese/English sentence boundaries.
-     *   2. Group sentences into batches of ≤ [BATCH_CHAR_LIMIT] chars.
-     *   3. POST each batch to the translate API.
-     *   4. Join translated batches with spaces.
-     *   5. 0.3s delay between batches to avoid rate-limiting.
-     *
-     * @param maxRetries number of retry attempts per batch on transient
-     *   failure. Use [MAX_RETRIES] for chapter text (where we want to be
-     *   resilient) or [TITLE_TRANSLATE_MAX_RETRIES] for catalog titles /
-     *   descriptions (where we want to fast-fail and show the original
-     *   Chinese text rather than blocking the UI).
-     */
     private suspend fun translateText(
         text: String,
         maxRetries: Int = MAX_RETRIES
@@ -494,20 +451,9 @@ class TimoTxtTranslate(
         translatedParts.joinToString(" ").trim()
     }
 
-    /**
-     * Best-effort translation for non-critical text (catalog titles, book
-     * descriptions). Uses a single attempt with no retry delay so that a
-     * flaky Google Translate API never blocks browsing — the original
-     * Chinese text is returned instead.
-     */
     private suspend fun translateTextFastFail(text: String): String =
         translateText(text, maxRetries = TITLE_TRANSLATE_MAX_RETRIES)
 
-    /**
-     * Translate a single batch (≤ [BATCH_CHAR_LIMIT] chars) via POST to
-     * Google Translate. Retries up to [maxRetries] times with exponential
-     * backoff. Returns null if all retries fail.
-     */
     private suspend fun translateBatch(
         text: String,
         maxRetries: Int = MAX_RETRIES
@@ -533,8 +479,6 @@ class TimoTxtTranslate(
 
                 return@withContext parseTranslationResponse(json)
             } catch (e: Exception) {
-                // Don't sleep after the final attempt — we're about to return
-                // null and let the caller fall back to the original text.
                 if (attempt < maxRetries - 1) {
                     delay(RETRY_DELAY_MS * (1L shl attempt))
                 }
@@ -543,14 +487,6 @@ class TimoTxtTranslate(
         null
     }
 
-    /**
-     * Batch translate chapter titles by joining with " ||| " separator,
-     * translating as one unit, then splitting back.
-     *
-     * @param maxRetries passed through to [translateBatch]. Use
-     *   [TITLE_TRANSLATE_MAX_RETRIES] for catalog listings so a slow API
-     *   doesn't block browsing.
-     */
     private suspend fun translateBatchTitles(
         titles: List<String>,
         maxRetries: Int = MAX_RETRIES
@@ -577,8 +513,6 @@ class TimoTxtTranslate(
                 if (fallbackSplit.size == batch.size) {
                     result.addAll(fallbackSplit)
                 } else {
-                    // Last resort: translate each title individually.
-                    // Use the same maxRetries so fast-fail mode stays fast.
                     for (title in batch) {
                         result.add(translateText(title, maxRetries))
                         delay(TRANSLATE_DELAY_MS)
@@ -591,12 +525,6 @@ class TimoTxtTranslate(
         result
     }
 
-    /**
-     * Split text into batches of at most [maxSize] characters, breaking at
-     * Chinese/English sentence boundaries.
-     *
-     * Sentence boundaries: `。！？」.!?`
-     */
     private fun splitIntoSentenceBatches(text: String, maxSize: Int): List<String> {
         val sentenceBoundary = Regex("(?<=[。！？」.!?])")
         val sentences = sentenceBoundary.split(text)
@@ -623,10 +551,6 @@ class TimoTxtTranslate(
         return batches
     }
 
-    /**
-     * Parse the Google Translate API JSON response.
-     * Response format: [[["translated","original",...],...], ..., "detectedLang", ...]
-     */
     private fun parseTranslationResponse(json: String): String? {
         return try {
             val root = JsonParser.parseString(json).asJsonArray
@@ -646,10 +570,6 @@ class TimoTxtTranslate(
 
 // ─── String cleaning extensions ─────────────────────────────────────────
 
-/**
- * Clean Chinese text before translation.
- * Pipeline: strip notices → remove Unicode garbage → collapse whitespace.
- */
 fun String.cleanChineseText(): String {
     var result = this
     for (pattern in TimoTxtTranslate.STRIP_PATTERNS) {
@@ -660,9 +580,6 @@ fun String.cleanChineseText(): String {
     return result
 }
 
-/**
- * Clean English text after translation (remove translated junk notices).
- */
 fun String.cleanEnglishJunk(): String {
     var result = this
     for (pattern in TimoTxtTranslate.ENGLISH_JUNK_PATTERNS) {

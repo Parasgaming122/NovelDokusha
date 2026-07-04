@@ -279,7 +279,24 @@ class ReaderActivity : BaseActivity() {
                     onOpenChapterInWeb = {
                         val url = viewModel.state.readerInfo.chapterUrl.value
                         if (url.isNotBlank()) {
-                            navigationRoutes.webView(this, url = url).let(::startActivity)
+                            // Transform the stored chapter URL through the
+                            // source's transformChapterUrl() before opening
+                            // in WebView. This is critical for sources like
+                            // TimoTxtTranslate (adds _x_tr_* params so the
+                            // translate.goog proxy serves translated content),
+                            // TimoTxtGemini (converts gemini.goog → translate.goog),
+                            // TimoTxt (converts timotxt.com → translate.goog for
+                            // CF bypass + JS translation), and Reddit (converts
+                            // to old.reddit.com). Without this, the WebView
+                            // opens the raw stored URL which may not resolve
+                            // or may show "can't translate this page".
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                val webUrl = viewModel.transformUrlForWeb(url)
+                                withContext(Dispatchers.Main) {
+                                    navigationRoutes.webView(this@ReaderActivity, url = webUrl)
+                                        .let(::startActivity)
+                                }
+                            }
                         }
                     },
                     readerContent = {
