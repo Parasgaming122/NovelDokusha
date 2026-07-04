@@ -296,41 +296,38 @@ They differ in how they fetch content and whether they translate it.
 
 ### The Cloudflare bypass trick
 
-`www.timotxt.com` is behind Cloudflare, which blocks non-browser HTTP
-clients. Direct OkHttp fetches get a 403/503 challenge page even with the
-BrowserHeadersInterceptor.
+`www.timotxt.com` is behind Cloudflare, which can challenge non-browser
+HTTP clients. Direct OkHttp fetches may get a 403/503 challenge page.
 
-The translate variants use **`translate.goog`** (Google Translate's URL
-proxy) as a bypass:
+The `BrowserHeadersInterceptor` (Tier 1) makes every OkHttp request look
+like a real Chrome navigation, which is enough for timotxt.com's
+Cloudflare configuration — the site serves full content (HTTP 200) to
+requests that carry the standard `Sec-Fetch-*`, `Sec-CH-UA-*`, and
+`Accept-*` headers. The `CloudFareVerificationInterceptor` (Tier 2/3)
+is still in the chain as a fallback for when Cloudflare escalates to a
+JS challenge; on timotxt.com this rarely triggers in practice.
 
-```
-https://www-timotxt-com.translate.goog/<path>?_x_tr_sl=zh-CN&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp
-```
-
-This works because:
-1. `translate.goog` is hosted on Google IPs, which Cloudflare does not
-   challenge (Google is a trusted upstream).
-2. The proxy fetches the page server-side from `timotxt.com` and serves
-   the HTML to the client. The HTML it returns is the **original Chinese**
-   HTML (not translated — translation happens client-side via JS, which
-   OkHttp doesn't execute).
-3. Getting untranslated Chinese HTML is actually a **feature**: it lets
-   us control translation separately (via Google Translate API or Gemini
-   AI) rather than relying on translate.goog's JS-based translation.
+**Important**: The `translate.goog` domain mentioned in older versions
+of this document is **not** used for HTTP fetching. It exists only as a
+**routing key** — a fake `baseUrl` that lets the app's
+`getCompatibleSource()` distinguish books belonging to the
+`TimoTxtTranslate` source from the plain `TimoTxt` source. All actual
+HTTP traffic goes to `https://www.timotxt.com/`. The
+`transformChapterUrl()` method converts the stored `translate.goog` URL
+back to `timotxt.com` before each fetch; without this conversion the
+reader would try to fetch from `translate.goog` (which returns HTTP 400
+without Google Translate query params) and the chapter body would never
+load.
 
 ### The `toTranslateUrl()` helper
 
-All three TimoTxt sources share a helper that converts any timotxt.com,
-gemini.goog, or translate.goog URL to the canonical translate.goog
-format with the correct query params:
-
-```kotlin
-private fun toTranslateUrl(url: String): String {
-    val path = extractPath(url)  // strips domain, keeps path + query
-    return "https://www-timotxt-com.translate.goog/${path.trimStart('/')}" +
-           "?_x_tr_sl=zh-CN&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp"
-}
-```
+**Removed** — the previous `toTranslateUrl()` helper that wrapped URLs
+in the `translate.goog` proxy format is no longer used. Both
+`TimoTxtTranslate` and `TimoTxtGemini` fetch directly from
+`https://www.timotxt.com/` and translate the extracted text separately.
+The `translate.goog` and `gemini.goog` strings appear only in the
+stored `baseUrl` for routing purposes (see "The Cloudflare bypass
+trick" above).
 
 ### Translation strategies
 
@@ -342,54 +339,74 @@ private fun toTranslateUrl(url: String): String {
 
 ### Chapter text translation pipeline
 
-1. **Fetch HTML** from `translate.goog` (bypasses Cloudflare, returns
-   Chinese HTML).
-2. **Extract paragraphs** using Jsoup. Strip `<font>` wrapper tags and
-   `<span style="display:none">` hidden elements (translate.goog injects
-   these).
-3. **Chunk** into batches of ~4500 characters (Google Translate API has
-   a ~5000-char request limit).
-4. **Batch translate**:
+1. **Fetch HTML** directly from `https://www.timotxt.com/` (the
+   `BrowserHeadersInterceptor` handles Cloudflare; the stored
+   `translate.goog` / `gemini.goog` URL is converted back to
+   `timotxt.com` by `transformChapterUrl()` / `resolveOriginalUrl()` /
+   `fromGeminiUrl()` before each fetch).
+2. **Extract paragraphs** using Jsoup. Strip `<script>`, `<style>`,
+   `<iframe>`, `.gadBlock`, `.ads`, `.share-buttons`, `.pager` elements
+   from the content div (`.chapter-content .content`).
+3. **Clean** the extracted text: strip site notices
+   (`溫馨提示.*`, `PS：.*`, etc.), remove non-whitelisted Unicode
+   (Korean Hangul, rare CJK compat artifacts), collapse whitespace.
+4. **Chunk** into batches of ~**4500 characters** (Google Translate's
+   free `client=gtx` endpoint handles 5000+ chars per POST; 4500 is a
+   safe ceiling that cuts batch count by >50% versus the old 2000-char
+   limit).
+5. **Batch translate**:
    - `TimoTxtTranslate`: Joins titles/paragraphs with `|||` separator,
      sends as a single Google Translate API request, splits the response
      back. Retries with exponential backoff on rate-limit (HTTP 429).
+     Chapter text uses 3 retries; catalog titles and book descriptions
+     use **fast-fail** (1 attempt, no retry delay) so a flaky API never
+     blocks browsing — the original Chinese text is shown instead.
    - `TimoTxtGemini`: Sends each chunk to Gemini with a prompt that
      instructs it to translate Chinese → English while preserving
-     paragraph structure and not adding commentary.
-5. **Clean up** junk patterns: translate.goog injects "Translate" UI
+     paragraph structure and not adding commentary. Skips translation
+     entirely if no Gemini API key is configured in Settings.
+6. **Clean up** junk patterns: translate.goog injects "Translate" UI
    text and Google Translate occasionally produces artifacts like
    `[...]` or `>>>`. The `CHINESE_JUNK_PATTERNS` and
    `ENGLISH_JUNK_PATTERNS` regexes strip these.
 
 ### Catalog and search URL format
 
-Catalog and search URLs also go through translate.goog:
+Catalog and search requests go directly to `https://www.timotxt.com/`:
 
 ```
-https://www-timotxt-com.translate.goog/cat/index_<page>.html?_x_tr_sl=zh-CN&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp
-https://www-timotxt-com.translate.goog/search/index.html?searchkey=<query>&_x_tr_sl=zh-CN&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp
+https://www.timotxt.com/bookstack/?page=<N>
+https://www.timotxt.com/search/<query>
 ```
+
+The `/bookstack/` path (with trailing slash) is the catalog browse
+endpoint. The `/search/<query>` path is Cloudflare-protected and may
+trigger the WebView-based challenge solver on the first request; once
+the `cf_clearance` cookie is cached, subsequent requests are fast.
 
 The `TimoTxtGemini` source uses a different `baseUrl`
 (`https://www-timotxt-com-gemini.goog/`) purely for **routing
 uniqueness** — so the app's source selector can distinguish it from
-`TimoTxtTranslate`. Internally, both fetch from `translate.goog`. The
-`transformChapterUrl()` and `transformWebviewUrl()` methods in
-`TimoTxtGemini` convert the gemini.goog URL back to translate.goog
+`TimoTxtTranslate`. Internally, both fetch from `timotxt.com`. The
+`transformChapterUrl()` and `fromGeminiUrl()` methods in
+`TimoTxtGemini` convert the `gemini.goog` URL back to `timotxt.com`
 before any HTTP fetch or WebView display.
 
 ### Limitations
 
-- **translate.goog rate limits** — Under heavy use, Google may
-  temporarily block the client IP (HTTP 429). The code retries with
+- **Google Translate rate limits** — Under heavy use, the free
+  `client=gtx` endpoint may return HTTP 429. The code retries with
   exponential backoff, but sustained bulk translation will fail.
+  Catalog titles and book descriptions use fast-fail mode (1 attempt)
+  so browsing always works even when the API is rate-limited.
 - **Gemini API key required** — `TimoTxtGemini` requires the user to
-  enter a Gemini API key in Settings. Without a key, it falls back to
-  showing raw Chinese text.
-- **translate.goog HTML structure changes** — If Google changes the
-  proxy's HTML output (e.g., adds new wrapper tags, changes the hidden
-  span pattern), the cleanup code in `TimoTxtTranslate.kt` needs to be
-  updated. The `<font>` unwrap and `span[style*=display:none]` removal
-  are the most likely to break.
+  enter a Gemini API key in Settings. Without a key, all translation is
+  skipped and the original Chinese text is shown for titles,
+  descriptions, and chapter bodies.
+- **timotxt.com HTML structure changes** — If the site changes its HTML
+  output (e.g., adds new wrapper tags, changes the chapter content
+  selector), the extraction code needs to be updated. The
+  `div.chapter-content div.content` selector and the `.chaplist ul.all`
+  chapter list selector are the most critical.
 - **No image translation** — Text inside images (e.g., chapter
   illustrations with Chinese captions) is not translated.

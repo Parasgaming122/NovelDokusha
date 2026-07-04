@@ -133,12 +133,14 @@ class TimoTxtGemini(
         withContext(Dispatchers.Default) {
             val rawTitle = doc.selectFirst("h1.imgtext[data-type=c]")?.text()?.trim()
                 ?: doc.selectFirst("h1.title")?.text()?.trim()
+                ?: doc.selectFirst("h1")?.text()?.trim()
                 ?: return@withContext null
 
-            if (isPrimarilyCJK(rawTitle)) {
-                runCatching { geminiClient.translateText(rawTitle) }.getOrDefault(rawTitle)
-            } else {
+            // Skip translation if no API key configured — return Chinese title.
+            if (geminiApiKey.isBlank() || !isPrimarilyCJK(rawTitle)) {
                 rawTitle
+            } else {
+                runCatching { geminiClient.translateText(rawTitle) }.getOrDefault(rawTitle)
             }
         }
 
@@ -170,8 +172,9 @@ class TimoTxtGemini(
 
             if (text.isBlank()) return@withContext ""
 
-            // Translate if the text is primarily Chinese/CJK
-            if (isPrimarilyCJK(text)) {
+            // Translate if the text is primarily Chinese/CJK.
+            // Skip if no API key — return raw Chinese so the reader still works.
+            if (geminiApiKey.isNotBlank() && isPrimarilyCJK(text)) {
                 val translated = runCatching { translateChapterText(text) }.getOrDefault(text)
                 cleanTranslatedText(translated)
             } else {
@@ -227,10 +230,13 @@ class TimoTxtGemini(
         tryConnect {
             val originalUrl = fromGeminiUrl(bookUrl)
             val doc = networkClient.get(originalUrl).toDocument()
-            doc.selectFirst("meta[name=og:image]")
-                ?.attr("content")
-                ?: doc.selectFirst(".cover img[src]")
-                    ?.attr("src")
+            // The timotxt.com info page has the cover inside
+            //   <div class="col ... cover"><img src="https://i1.timotxt.com/thumb/v1/<id>.png" ...></div>
+            // There is no og:image meta tag on timotxt.com info pages.
+            doc.selectFirst(".cover img[src]")
+                ?.attr("src")
+                ?: doc.selectFirst("meta[property=og:image]")
+                    ?.attr("content")
         }
     }
 
@@ -248,10 +254,10 @@ class TimoTxtGemini(
                     ?.let { TextExtractor.get(it).trim() }
                 ?: return@tryConnect null
 
-            if (isPrimarilyCJK(description)) {
-                runCatching { geminiClient.translateText(description) }.getOrDefault(description)
-            } else {
+            if (geminiApiKey.isBlank() || !isPrimarilyCJK(description)) {
                 description
+            } else {
+                runCatching { geminiClient.translateText(description) }.getOrDefault(description)
             }
         }
     }
@@ -272,7 +278,13 @@ class TimoTxtGemini(
             val doc = networkClient.get(dirUrl).toDocument()
             val allChapterLinks = doc.select(".chaplist ul.all li a[href]")
 
-            // Collect raw chapter data (title + url)
+            // Collect raw chapter data (title + url).
+            //
+            // The /dir page has TWO <ul> lists inside .chaplist:
+            //   1. ul.flex...three-900 (12 links, NEWEST first — sidebar)
+            //   2. ul.flex...three-900.all (all links, OLDEST first — complete list)
+            // The `.all` selector targets #2 which is already oldest-first,
+            // so no reversal is needed.
             val rawChapters = if (allChapterLinks.isNotEmpty()) {
                 allChapterLinks.map { link ->
                     ChapterResult(
@@ -290,7 +302,12 @@ class TimoTxtGemini(
                 }
             }
 
-            // Batch-translate chapter titles using Gemini
+            // Batch-translate chapter titles using Gemini.
+            // If no API key is configured, skip translation and return the
+            // original Chinese titles — the user can still read chapters
+            // (chapter body translation also gracefully falls back).
+            if (geminiApiKey.isBlank()) return@tryConnect rawChapters
+
             val cjkChapters = rawChapters.filter { isPrimarilyCJK(it.title) }
             if (cjkChapters.isNotEmpty()) {
                 val titleItems = cjkChapters.mapIndexed { index, ch ->
@@ -331,14 +348,20 @@ class TimoTxtGemini(
                 Triple(rawTitle, link.attr("href"), cover)
             }
 
-            // Batch-translate titles that are CJK using Gemini
-            val cjkTitles = rawBooks.map { it.first }.filter { isPrimarilyCJK(it) }
-            val translatedMap = if (cjkTitles.isNotEmpty()) {
-                val titleItems = cjkTitles.mapIndexed { index, title ->
-                    GeminiApiClient.ParagraphItem(id = index, text = title)
+            // Batch-translate titles that are CJK using Gemini.
+            // If no API key is set, skip translation and show Chinese titles
+            // — the catalog must always load so the user can browse books.
+            val translatedMap = if (geminiApiKey.isNotBlank() && rawBooks.isNotEmpty()) {
+                val cjkTitles = rawBooks.map { it.first }.filter { isPrimarilyCJK(it) }
+                if (cjkTitles.isNotEmpty()) {
+                    val titleItems = cjkTitles.mapIndexed { index, title ->
+                        GeminiApiClient.ParagraphItem(id = index, text = title)
+                    }
+                    val translated = geminiClient.translateParagraphs(titleItems)
+                    cjkTitles.zip(translated.map { it.text }).toMap()
+                } else {
+                    emptyMap()
                 }
-                val translated = geminiClient.translateParagraphs(titleItems)
-                cjkTitles.zip(translated.map { it.text }).toMap()
             } else {
                 emptyMap()
             }
@@ -351,12 +374,15 @@ class TimoTxtGemini(
                 )
             }
 
+            // Pagination: the site serves <li class="next pagination-link">
+            // on every page except the last (where it has the `disabled`
+            // class). Mirrors the TimoTxt.kt / TimoTxtTranslate.kt selector.
+            val hasNextPage = doc.selectFirst("li.next.pagination-link:not(.disabled)") != null
+
             PagedList(
                 list = books,
                 index = index,
-                isLastPage = doc.selectFirst("a:contains(»)") == null &&
-                        doc.selectFirst("a.next") == null &&
-                        doc.selectFirst(".pagination .next") == null
+                isLastPage = !hasNextPage
             )
         }
     }
@@ -376,16 +402,19 @@ class TimoTxtGemini(
                 val bookUrl = normalizeUrl(input)
                 val doc = networkClient.get(bookUrl).toDocument()
                 val rawTitle = doc.selectFirst("h1.title")?.text()?.trim()
+                    ?: doc.selectFirst("h1")?.text()?.trim()
                     ?: doc.selectFirst("meta[name=og:novel:book_name]")?.attr("content")
                     ?: return@tryConnect PagedList.createEmpty(index)
 
-                val displayTitle = if (isPrimarilyCJK(rawTitle)) {
+                val displayTitle = if (geminiApiKey.isNotBlank() && isPrimarilyCJK(rawTitle)) {
                     runCatching { geminiClient.translateText(rawTitle) }.getOrDefault(rawTitle)
                 } else {
                     rawTitle
                 }
 
-                val cover = doc.selectFirst("meta[name=og:image]")?.attr("content") ?: ""
+                val cover = doc.selectFirst(".cover img[src]")?.attr("src")
+                    ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
+                    ?: ""
 
                 return@tryConnect PagedList(
                     list = listOf(
@@ -414,14 +443,19 @@ class TimoTxtGemini(
                 Triple(rawTitle, link.attr("href"), cover)
             }
 
-            // Batch-translate search result titles using Gemini
-            val cjkTitles = rawBooks.map { it.first }.filter { isPrimarilyCJK(it) }
-            val translatedMap = if (cjkTitles.isNotEmpty()) {
-                val titleItems = cjkTitles.mapIndexed { idx, title ->
-                    GeminiApiClient.ParagraphItem(id = idx, text = title)
+            // Batch-translate search result titles using Gemini.
+            // Skip if no API key — show Chinese titles.
+            val translatedMap = if (geminiApiKey.isNotBlank() && rawBooks.isNotEmpty()) {
+                val cjkTitles = rawBooks.map { it.first }.filter { isPrimarilyCJK(it) }
+                if (cjkTitles.isNotEmpty()) {
+                    val titleItems = cjkTitles.mapIndexed { idx, title ->
+                        GeminiApiClient.ParagraphItem(id = idx, text = title)
+                    }
+                    val translated = geminiClient.translateParagraphs(titleItems)
+                    cjkTitles.zip(translated.map { it.text }).toMap()
+                } else {
+                    emptyMap()
                 }
-                val translated = geminiClient.translateParagraphs(titleItems)
-                cjkTitles.zip(translated.map { it.text }).toMap()
             } else {
                 emptyMap()
             }

@@ -75,10 +75,13 @@ class TimoTxt(
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
             val doc = networkClient.get(bookUrl).toDocument()
-            doc.selectFirst("meta[property=og:image]")
-                ?.attr("content")
-                ?: doc.selectFirst(".cover img[src]")
-                    ?.attr("src")
+            // The timotxt.com info page has the cover inside
+            //   <div class="col ... cover"><img src="https://i1.timotxt.com/thumb/v1/<id>.png" ...></div>
+            // There is no og:image meta tag on timotxt.com info pages.
+            doc.selectFirst(".cover img[src]")
+                ?.attr("src")
+                ?: doc.selectFirst("meta[property=og:image]")
+                    ?.attr("content")
         }
     }
 
@@ -111,6 +114,12 @@ class TimoTxt(
             val doc = networkClient.get(dirUrl).toDocument()
 
             // Try .chaplist ul.all li a[href] first, fallback to .chaplist ul li a[href]
+            //
+            // The /dir page has TWO <ul> lists inside .chaplist:
+            //   1. ul.flex...three-900 (12 links, NEWEST first — "latest updates" sidebar)
+            //   2. ul.flex...three-900.all (all links, OLDEST first — complete list)
+            // The `.all` selector targets #2 which is already in the correct
+            // oldest-first order the reader expects, so no reversal is needed.
             val chapterLinks = doc.select(".chaplist ul.all li a[href]")
                 .takeIf { it.isNotEmpty() }
                 ?: doc.select(".chaplist ul li a[href]")

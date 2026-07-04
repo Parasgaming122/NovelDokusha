@@ -74,10 +74,22 @@ class TimoTxtTranslate(
         // ─── Translation API ────────────────────────────────────────────
         private const val TRANSLATE_API_URL =
             "https://translate.googleapis.com/translate_a/single"
-        private const val BATCH_CHAR_LIMIT = 2000
+        // Google Translate's free `client=gtx` endpoint accepts POST bodies
+        // well beyond the old 2000-char ceiling — testing confirms payloads of
+        // 5000+ characters return 200 OK with a full translation. 4500 gives
+        // us a comfortable safety margin while cutting the number of batches
+        // (and therefore network round-trips) by more than half versus the
+        // previous 2000-char limit.
+        private const val BATCH_CHAR_LIMIT = 4500
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 1500L
         private const val TRANSLATE_DELAY_MS = 300L
+
+        // For non-critical translations (catalog titles, book descriptions)
+        // we use a single retry with a short delay so a flaky translate API
+        // never blocks browsing — the original Chinese text is shown instead.
+        private const val TITLE_TRANSLATE_MAX_RETRIES = 1
+        private const val TITLE_TRANSLATE_RETRY_DELAY_MS = 500L
 
         // ─── Text cleaning ──────────────────────────────────────────────
         /**
@@ -177,10 +189,22 @@ class TimoTxtTranslate(
     }
 
     /**
-     * No transform needed at the chapter-fetch level — we resolve to the
-     * original URL in each getter. (Kept for SourceInterface compatibility.)
+     * Convert a stored (fake) translate.goog chapter URL back to the real
+     * timotxt.com URL before the reader fetches it.
+     *
+     * This is called by `DownloaderRepository.bookChapter()` which does:
+     *   `networkClient.get(source.transformChapterUrl(realUrl))`
+     * If we return the URL unchanged, OkHttp tries to fetch from
+     * `https://www-timotxt-com.translate.goog/...` — that host resolves to
+     * Google's servers but returns HTTP 400 without the `_x_tr_sl` /
+     * `_x_tr_tl` query params, so the chapter body is never retrieved.
+     *
+     * The translate.goog domain is only a routing key stored in the local
+     * database to keep this source's books distinct from the plain TimoTxt
+     * source; all real HTTP must go to `https://www.timotxt.com/`.
      */
-    override suspend fun transformChapterUrl(url: String): String = url
+    override suspend fun transformChapterUrl(url: String): String =
+        resolveOriginalUrl(url)
 
     // ─── Chapter content ────────────────────────────────────────────────
 
@@ -189,7 +213,9 @@ class TimoTxtTranslate(
             val titleEl = doc.selectFirst("h1.imgtext, .chapter-content h1, .chapter-content .title, h1.chapter-title, h1")
                 ?: return@withContext null
             val titleCn = titleEl.text().trim()
-            if (titleCn.isBlank()) null else translateText(titleCn)
+            // Chapter titles are short — use fast-fail so a slow translate
+            // API doesn't delay the reader. Falls back to the Chinese title.
+            if (titleCn.isBlank()) null else translateTextFastFail(titleCn)
         }
 
     override suspend fun getChapterText(doc: Document): String =
@@ -197,8 +223,9 @@ class TimoTxtTranslate(
             val contentEl = doc.selectFirst("div.chapter-content div.content")
                 ?: doc.selectFirst("div.chapter-content")
                 ?: doc.selectFirst("div.content")
+                ?: return@withContext ""
 
-            contentEl!!.also {
+            contentEl.also {
                 it.select(".gadBlock").remove()
                 it.select("script").remove()
                 it.select("style").remove()
@@ -210,6 +237,7 @@ class TimoTxtTranslate(
 
             val rawText = TextExtractor.get(contentEl)
             val cleanedCn = rawText.cleanChineseText()
+            if (cleanedCn.isBlank()) return@withContext ""
             val translatedEn = translateText(cleanedCn)
             translatedEn.cleanEnglishJunk()
         }
@@ -222,12 +250,16 @@ class TimoTxtTranslate(
         tryConnect {
             val fetchUrl = resolveOriginalUrl(bookUrl)
             val doc = networkClient.get(fetchUrl).toDocument()
-            doc.selectFirst("meta[property=og:image]")
-                ?.attr("content")
-                ?: doc.selectFirst("img.bookinfo-pic-img[src]")
-                    ?.attr("src")
-                ?: doc.selectFirst(".cover img[src]")
-                    ?.attr("src")
+            // The timotxt.com info page has the cover inside
+            //   <div class="col ... cover"><img src="https://i1.timotxt.com/thumb/v1/<id>.png" ...></div>
+            // There is no og:image meta tag and no .bookinfo-pic-img class —
+            // those selectors were copied from a different site template and
+            // never matched. The .cover img[src] selector is the one that
+            // actually works.
+            doc.selectFirst(".cover img[src]")
+                ?.attr("src")
+                ?: doc.selectFirst("meta[property=og:image]")
+                    ?.attr("content")
         }
     }
 
@@ -242,7 +274,12 @@ class TimoTxtTranslate(
                 ?.trim()
                 ?: doc.selectFirst(".intro, .desc, .bookinfo-detail .desc")
                     ?.let { TextExtractor.get(it).trim() }
-            if (rawDesc.isNullOrBlank()) null else translateText(rawDesc)
+            if (rawDesc.isNullOrBlank()) null
+            // Description translation is best-effort: if the Google Translate
+            // API is slow or rate-limited we fall back to the original Chinese
+            // text rather than blocking the info page for 10+ seconds while
+            // three retries time out.
+            else translateTextFastFail(rawDesc)
         }
     }
 
@@ -258,8 +295,14 @@ class TimoTxtTranslate(
             val doc = networkClient.get(dirUrl).toDocument()
 
             // Verified selectors from the real /dir page:
-            //   .chaplist ul.all li a  → 398 chapter links (primary)
+            //   .chaplist ul.all li a  → all chapter links (primary)
             //   .chaplist ul li a      → fallback
+            //
+            // The /dir page has TWO <ul> lists inside .chaplist:
+            //   1. ul.flex...three-900 (12 links, NEWEST first — sidebar)
+            //   2. ul.flex...three-900.all (all links, OLDEST first — complete list)
+            // The `.all` selector targets #2 which is already oldest-first,
+            // so no reversal is needed.
             val chapterLinks = doc.select(".chaplist ul.all li a[href]")
                 .takeIf { it.isNotEmpty() }
                 ?: doc.select(".chaplist ul li a[href]")
@@ -298,16 +341,29 @@ class TimoTxtTranslate(
 
             // Verified selector: ul.list.flex > li
             // Each li contains: <a href="/{id}/"><img .../></a> and <h3><a href>title</a></h3>
-            val books = doc.select("ul.list.flex > li").mapNotNull { li ->
+            val rawBooks = doc.select("ul.list.flex > li").mapNotNull { li ->
                 val link = li.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
                 val cover = li.selectFirst("img[src]")?.attr("src") ?: ""
                 val originalTitle = link.text().trim()
                 if (originalTitle.isBlank()) return@mapNotNull null
-                // Store book URL with THIS source's baseUrl for routing.
                 val realUrl = URI(originalBaseUrl).resolve(link.attr("href")).toString()
                 val storedUrl = realUrl.replace(originalBaseUrl, baseUrl)
+                Triple(originalTitle, storedUrl, cover)
+            }
+
+            // Batch-translate all titles in one go (joined with " ||| ")
+            // using fast-fail mode — if the Google Translate API is slow or
+            // rate-limited we fall back to the original Chinese titles
+            // immediately instead of blocking the catalog for 30+ seconds
+            // while 18 individual title translations each retry 3 times.
+            val translatedTitles = translateBatchTitles(
+                rawBooks.map { it.first },
+                maxRetries = TITLE_TRANSLATE_MAX_RETRIES
+            )
+
+            val books = rawBooks.mapIndexed { i, (originalTitle, storedUrl, cover) ->
                 BookResult(
-                    title = translateText(originalTitle),
+                    title = translatedTitles.getOrElse(i) { originalTitle },
                     url = storedUrl,
                     coverImageUrl = cover
                 )
@@ -343,15 +399,15 @@ class TimoTxtTranslate(
                 val doc = networkClient.get(fetchUrl).toDocument()
                 val rawTitle = doc.selectFirst("h1, .book-name, .book-title")
                     ?.text()?.trim() ?: return@tryConnect PagedList.createEmpty(index)
-                val cover = doc.selectFirst("meta[property=og:image]")
-                    ?.attr("content")
-                    ?: doc.selectFirst("img.bookinfo-pic-img[src]")?.attr("src")
+                val cover = doc.selectFirst(".cover img[src]")
+                    ?.attr("src")
+                    ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
                     ?: ""
                 val storedUrl = fetchUrl.replace(originalBaseUrl, baseUrl)
                 return@tryConnect PagedList(
                     list = listOf(
                         BookResult(
-                            title = translateText(rawTitle),
+                            title = translateTextFastFail(rawTitle),
                             url = storedUrl,
                             coverImageUrl = cover
                         )
@@ -370,15 +426,24 @@ class TimoTxtTranslate(
                 .toString()
 
             val doc = networkClient.get(searchUrl).toDocument()
-            val books = doc.select("ul.list.flex > li").mapNotNull { li ->
+            val rawBooks = doc.select("ul.list.flex > li").mapNotNull { li ->
                 val link = li.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
                 val cover = li.selectFirst("img[src]")?.attr("src") ?: ""
                 val originalTitle = link.text().trim()
                 if (originalTitle.isBlank()) return@mapNotNull null
                 val realUrl = URI(originalBaseUrl).resolve(link.attr("href")).toString()
                 val storedUrl = realUrl.replace(originalBaseUrl, baseUrl)
+                Triple(originalTitle, storedUrl, cover)
+            }
+
+            val translatedTitles = translateBatchTitles(
+                rawBooks.map { it.first },
+                maxRetries = TITLE_TRANSLATE_MAX_RETRIES
+            )
+
+            val books = rawBooks.mapIndexed { i, (originalTitle, storedUrl, cover) ->
                 BookResult(
-                    title = translateText(originalTitle),
+                    title = translatedTitles.getOrElse(i) { originalTitle },
                     url = storedUrl,
                     coverImageUrl = cover
                 )
@@ -403,8 +468,17 @@ class TimoTxtTranslate(
      *   3. POST each batch to the translate API.
      *   4. Join translated batches with spaces.
      *   5. 0.3s delay between batches to avoid rate-limiting.
+     *
+     * @param maxRetries number of retry attempts per batch on transient
+     *   failure. Use [MAX_RETRIES] for chapter text (where we want to be
+     *   resilient) or [TITLE_TRANSLATE_MAX_RETRIES] for catalog titles /
+     *   descriptions (where we want to fast-fail and show the original
+     *   Chinese text rather than blocking the UI).
      */
-    private suspend fun translateText(text: String): String = withContext(Dispatchers.IO) {
+    private suspend fun translateText(
+        text: String,
+        maxRetries: Int = MAX_RETRIES
+    ): String = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext ""
         if (!isPrimarilyCJK(text)) return@withContext text
 
@@ -412,7 +486,7 @@ class TimoTxtTranslate(
         val translatedParts = mutableListOf<String>()
 
         for (batch in batches) {
-            val translated = translateBatch(batch) ?: batch
+            val translated = translateBatch(batch, maxRetries) ?: batch
             translatedParts.add(translated)
             delay(TRANSLATE_DELAY_MS)
         }
@@ -421,14 +495,26 @@ class TimoTxtTranslate(
     }
 
     /**
-     * Translate a single batch (≤ ~2000 chars) via POST to Google Translate.
-     * Retries up to [MAX_RETRIES] times with exponential backoff.
-     * Returns null if all retries fail.
+     * Best-effort translation for non-critical text (catalog titles, book
+     * descriptions). Uses a single attempt with no retry delay so that a
+     * flaky Google Translate API never blocks browsing — the original
+     * Chinese text is returned instead.
      */
-    private suspend fun translateBatch(text: String): String? = withContext(Dispatchers.IO) {
+    private suspend fun translateTextFastFail(text: String): String =
+        translateText(text, maxRetries = TITLE_TRANSLATE_MAX_RETRIES)
+
+    /**
+     * Translate a single batch (≤ [BATCH_CHAR_LIMIT] chars) via POST to
+     * Google Translate. Retries up to [maxRetries] times with exponential
+     * backoff. Returns null if all retries fail.
+     */
+    private suspend fun translateBatch(
+        text: String,
+        maxRetries: Int = MAX_RETRIES
+    ): String? = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext ""
 
-        repeat(MAX_RETRIES) { attempt ->
+        repeat(maxRetries) { attempt ->
             try {
                 val url = TRANSLATE_API_URL.toUrlBuilderSafe()
                     .add("client", "gtx")
@@ -447,7 +533,11 @@ class TimoTxtTranslate(
 
                 return@withContext parseTranslationResponse(json)
             } catch (e: Exception) {
-                delay(RETRY_DELAY_MS * (1L shl attempt))
+                // Don't sleep after the final attempt — we're about to return
+                // null and let the caller fall back to the original text.
+                if (attempt < maxRetries - 1) {
+                    delay(RETRY_DELAY_MS * (1L shl attempt))
+                }
             }
         }
         null
@@ -456,42 +546,50 @@ class TimoTxtTranslate(
     /**
      * Batch translate chapter titles by joining with " ||| " separator,
      * translating as one unit, then splitting back.
+     *
+     * @param maxRetries passed through to [translateBatch]. Use
+     *   [TITLE_TRANSLATE_MAX_RETRIES] for catalog listings so a slow API
+     *   doesn't block browsing.
      */
-    private suspend fun translateBatchTitles(titles: List<String>): List<String> =
-        withContext(Dispatchers.IO) {
-            if (titles.isEmpty()) return@withContext emptyList()
+    private suspend fun translateBatchTitles(
+        titles: List<String>,
+        maxRetries: Int = MAX_RETRIES
+    ): List<String> = withContext(Dispatchers.IO) {
+        if (titles.isEmpty()) return@withContext emptyList()
 
-            val chunkSize = 15
-            val result = mutableListOf<String>()
+        val chunkSize = 15
+        val result = mutableListOf<String>()
 
-            for (batch in titles.chunked(chunkSize)) {
-                val joined = batch.joinToString(" ||| ")
-                if (!isPrimarilyCJK(joined)) {
-                    result.addAll(batch)
-                    continue
-                }
-
-                val translated = translateBatch(joined) ?: joined
-                val split = translated.split(" ||| ")
-
-                if (split.size == batch.size) {
-                    result.addAll(split)
-                } else {
-                    val fallbackSplit = translated.split(Regex("\\s*\\|{2,3}\\s*"))
-                    if (fallbackSplit.size == batch.size) {
-                        result.addAll(fallbackSplit)
-                    } else {
-                        for (title in batch) {
-                            result.add(translateText(title))
-                            delay(TRANSLATE_DELAY_MS)
-                        }
-                    }
-                }
-                delay(TRANSLATE_DELAY_MS)
+        for (batch in titles.chunked(chunkSize)) {
+            val joined = batch.joinToString(" ||| ")
+            if (!isPrimarilyCJK(joined)) {
+                result.addAll(batch)
+                continue
             }
 
-            result
+            val translated = translateBatch(joined, maxRetries) ?: joined
+            val split = translated.split(" ||| ")
+
+            if (split.size == batch.size) {
+                result.addAll(split)
+            } else {
+                val fallbackSplit = translated.split(Regex("\\s*\\|{2,3}\\s*"))
+                if (fallbackSplit.size == batch.size) {
+                    result.addAll(fallbackSplit)
+                } else {
+                    // Last resort: translate each title individually.
+                    // Use the same maxRetries so fast-fail mode stays fast.
+                    for (title in batch) {
+                        result.add(translateText(title, maxRetries))
+                        delay(TRANSLATE_DELAY_MS)
+                    }
+                }
+            }
+            delay(TRANSLATE_DELAY_MS)
         }
+
+        result
+    }
 
     /**
      * Split text into batches of at most [maxSize] characters, breaking at
