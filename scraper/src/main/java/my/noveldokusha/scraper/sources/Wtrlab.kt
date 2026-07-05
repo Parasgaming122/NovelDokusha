@@ -191,20 +191,8 @@ class Wtrlab(
 
     override suspend fun getChapterTitle(doc: Document): String? =
         withContext(Dispatchers.Default) {
-            // Title is in the __NEXT_DATA__ or in the page's h1
-            val html = doc.html()
-            try {
-                val nextData = extractNextData(html)
-                val inner = nextData
-                    .getAsJsonObject("props")
-                    ?.getAsJsonObject("pageProps")
-                    ?.getAsJsonObject("chapterData")
-                    ?.getAsJsonObject("data")
-                    ?.getAsJsonObject("data")
-                inner?.get("title")?.asString
-            } catch (e: Exception) {
-                doc.selectFirst("h1")?.text()?.trim()
-            }
+            // The chapter title is in the page's h1 or in __NEXT_DATA__
+            doc.selectFirst("h1")?.text()?.trim()?.takeIf { it.isNotBlank() }
         }
 
     override suspend fun getChapterText(doc: Document): String? =
@@ -239,10 +227,22 @@ class Wtrlab(
             // Navigate: json.data.data
             val outerData = data.getAsJsonObject("data") ?: return@withContext ""
             val innerData = outerData.getAsJsonObject("data") ?: outerData
-            val rawBody = innerData.get("body") ?: return@withContext ""
+            val bodyElement = innerData.get("body") ?: return@withContext ""
 
-            // Decrypt body (arr: or str: format)
-            val rawBodyStr = if (rawBody.isJsonArray) rawBody.toString() else rawBody.asString
+            // Handle body: it can be a string (encrypted or plaintext) or a
+            // JSON array (already-decoded paragraphs, rare in ai mode).
+            if (bodyElement.isJsonArray) {
+                // Body is already a non-encrypted JSON array of paragraph strings
+                val paragraphs = bodyElement.asJsonArray
+                    .map { it.asString }
+                    .filter { it.isNotBlank() }
+                    .map { cleanParagraph(it) }
+                    .filter { it.isNotBlank() }
+                return@withContext paragraphs.joinToString("\n\n")
+            }
+
+            // Body is a string — may be encrypted (arr:... / str:...) or plaintext
+            val rawBodyStr = bodyElement.asString
             if (rawBodyStr.isBlank() || rawBodyStr == "null") return@withContext ""
 
             val decrypted = decryptBody(rawBodyStr)
