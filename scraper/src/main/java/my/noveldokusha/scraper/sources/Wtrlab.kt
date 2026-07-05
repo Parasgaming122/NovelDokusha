@@ -8,48 +8,38 @@ import my.noveldokusha.core.LanguageCode
 import my.noveldokusha.core.PagedList
 import my.noveldokusha.core.Response
 import my.noveldokusha.network.NetworkClient
-import my.noveldokusha.network.add
-import my.noveldokusha.network.addPath
 import my.noveldokusha.network.getRequest
 import my.noveldokusha.network.postRequest
 import my.noveldokusha.network.toDocument
-import my.noveldokusha.network.toUrlBuilderSafe
 import my.noveldokusha.network.tryConnect
 import my.noveldokusha.scraper.R
 import my.noveldokusha.scraper.SourceInterface
-import my.noveldokusha.scraper.TextExtractor
 import my.noveldokusha.scraper.domain.BookResult
 import my.noveldokusha.scraper.domain.ChapterResult
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.nodes.Document
+import timber.log.Timber
 import java.net.URI
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * WTR-LAB — Chinese-to-English machine-translated novel source.
  *
- * Native Kotlin implementation (not a Lua plugin). Based on the wtrlab.lua
- * plugin from HnDK0's external-sources repo, ported to Kotlin for better
- * performance and error handling.
+ * Native Kotlin implementation ported from wtr_lab_scraper.py.
  *
- * Site structure (https://wtr-lab.com/):
- *   Catalog:    GET /novel-list?page=N
- *   Search:     GET /novel-finder?text=QUERY&page=N
- *   Book info:  GET /novel/{id}/{slug}
- *   Chapter list: GET /api/chapters/{novelId}  (JSON API)
- *   Chapter text: POST /api/reader/get  (JSON API)
+ * Key features ported from the Python script:
+ *   1. **Local AES-256-GCM decryption** of chapter bodies using the key
+ *      extracted from the site's Next.js chunk — no proxy needed.
+ *   2. **Next.js __NEXT_DATA__ JSON parsing** for catalog/search/info pages.
+ *   3. **Retry with `retry: true`** on translator warmup misses.
+ *   4. **Glossary marker substitution** (※{idx}⛬ and ※{idx}〓).
+ *   5. **URL format**: `/{locale}/novel/{id}/{slug}` with locale prefix.
  *
- * Chapter text pipeline:
- *   1. POST /api/reader/get with {translate, language, raw_id, chapter_no}
- *   2. Response body may be encrypted (starts with "arr:")
- *      → POST to https://wtr-lab-proxy.fly.dev/chapter for decryption
- *   3. Decrypted body is a JSON array of paragraph strings
- *   4. Apply glossary terms (from /api/v2/reader/terms/{novelId}.json)
- *   5. Apply patches (zh → en replacements from the API response)
- *
- * Two modes (stored in SharedPreferences "lua_preferences"):
- *   "ai"  — AI-translated text (default, higher quality)
- *   "raw" — Raw web text (faster, lower quality)
+ * The Cloudflare bypass is handled by the existing OkHttp interceptor chain
+ * (BrowserHeadersInterceptor + CloudFareVerificationInterceptor).
  */
 class Wtrlab(
     private val networkClient: NetworkClient,
@@ -57,20 +47,21 @@ class Wtrlab(
     override val id = "wtrlab"
     override val nameStrId = R.string.source_name_wtrlab
     override val baseUrl = "https://wtr-lab.com/"
-    override val catalogUrl = "https://wtr-lab.com/novel-list?page=1"
+    override val catalogUrl = "https://wtr-lab.com/en/novel-list"
     override val language = LanguageCode.ENGLISH
     override val iconUrl = "https://wtr-lab.com/favicon.ico"
 
     companion object {
-        private const val PROXY_URL = "https://wtr-lab-proxy.fly.dev/chapter"
-        private const val PREF_MODE = "wtrlab_mode"
-        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-    }
+        private const val BASE_URL = "https://wtr-lab.com"
+        private const val LOCALE = "en"
+        private const val JSON_MEDIA_TYPE = "application/json; charset=utf-8"
 
-    private fun getMode(): String {
-        // Read from SharedPreferences "lua_preferences" (same as Lua plugins)
-        // Default to "ai" mode
-        return System.getProperty(PREF_MODE, "ai") ?: "ai"
+        // AES-256-GCM key extracted from wtr-lab.com's Next.js chunk
+        // /_next/static/chunks/f1284758969025b7.js
+        private val AES_KEY = "IJAFUUxjM25hyzL2AZrn0wl7cESED6Ru".toByteArray()
+
+        // Fallback proxy (used if local decryption fails)
+        private const val PROXY_URL = "https://wtr-lab-proxy.fly.dev/chapter"
     }
 
     // ─── Catalog ──────────────────────────────────────────────────────
@@ -79,9 +70,26 @@ class Wtrlab(
         withContext(Dispatchers.Default) {
             tryConnect {
                 val page = index + 1
-                val url = "${baseUrl}novel-list?page=$page"
-                val doc = networkClient.get(url).toDocument()
-                val items = parseNovelCards(doc)
+                val url = "$BASE_URL/$LOCALE/novel-list?page=$page"
+                val html = fetchText(url)
+                val nextData = extractNextData(html)
+                val series = nextData
+                    .getAsJsonObject("props")
+                    ?.getAsJsonObject("pageProps")
+                    ?.getAsJsonArray("series") ?: return@tryConnect PagedList.createEmpty(index)
+
+                val items = mutableListOf<BookResult>()
+                for (i in 0 until series.size()) {
+                    val n = series[i].asJsonObject
+                    val rawId = n.get("raw_id")?.asString ?: continue
+                    val data = n.getAsJsonObject("data") ?: n
+                    val title = data.get("title")?.asString ?: n.get("search_text")?.asString ?: continue
+                    val slug = n.get("slug")?.asString ?: ""
+                    val cover = data.get("image")?.asString ?: ""
+                    val bookUrl = "$BASE_URL/$LOCALE/novel/$rawId/$slug"
+                    items.add(BookResult(title = title, url = bookUrl, coverImageUrl = cover))
+                }
+
                 PagedList(list = items, index = index, isLastPage = items.isEmpty())
             }
         }
@@ -91,48 +99,60 @@ class Wtrlab(
             tryConnect {
                 if (input.isBlank()) return@tryConnect PagedList.createEmpty(index)
                 val page = index + 1
-                val url = "${baseUrl}novel-finder?text=${java.net.URLEncoder.encode(input, "UTF-8")}&page=$page"
-                val doc = networkClient.get(url).toDocument()
-                val items = parseNovelCards(doc)
+                val encodedQuery = java.net.URLEncoder.encode(input, "UTF-8")
+                val url = "$BASE_URL/$LOCALE/novel-finder?text=$encodedQuery&page=$page"
+                val html = fetchText(url)
+                val nextData = extractNextData(html)
+                val series = nextData
+                    .getAsJsonObject("props")
+                    ?.getAsJsonObject("pageProps")
+                    ?.getAsJsonArray("series") ?: return@tryConnect PagedList.createEmpty(index)
+
+                val items = mutableListOf<BookResult>()
+                for (i in 0 until series.size()) {
+                    val n = series[i].asJsonObject
+                    val rawId = n.get("raw_id")?.asString ?: continue
+                    val data = n.getAsJsonObject("data") ?: n
+                    val title = data.get("title")?.asString ?: n.get("search_text")?.asString ?: continue
+                    val slug = n.get("slug")?.asString ?: ""
+                    val cover = data.get("image")?.asString ?: ""
+                    val bookUrl = "$BASE_URL/$LOCALE/novel/$rawId/$slug"
+                    items.add(BookResult(title = title, url = bookUrl, coverImageUrl = cover))
+                }
+
                 PagedList(list = items, index = index, isLastPage = items.isEmpty())
             }
         }
-
-    private fun parseNovelCards(doc: Document): List<BookResult> {
-        val items = mutableListOf<BookResult>()
-        val cards = doc.select("div.series-list [data-slot='card']")
-        for (card in cards) {
-            val titleEl = card.selectFirst("a[href*='/novel/']") ?: continue
-            val title = card.selectFirst("h3")?.text()?.trim()
-                ?: titleEl.text().trim()
-            if (title.isBlank()) continue
-            val href = titleEl.attr("href")
-            val url = if (href.startsWith("http")) href else URI(baseUrl).resolve(href).toString()
-            val cover = card.selectFirst(".image-wrap img[alt]:not([aria-hidden])")?.attr("src") ?: ""
-            val coverUrl = if (cover.startsWith("http")) cover
-                else if (cover.isNotBlank()) URI(baseUrl).resolve(cover).toString()
-                else ""
-            items.add(BookResult(title = title, url = url, coverImageUrl = coverUrl))
-        }
-        return items
-    }
 
     // ─── Book metadata ────────────────────────────────────────────────
 
     override suspend fun getBookCoverImageUrl(bookUrl: String): Response<String?> =
         withContext(Dispatchers.Default) {
             tryConnect {
-                val doc = networkClient.get(bookUrl).toDocument()
-                val cover = doc.selectFirst(".image-wrap img[alt]:not([aria-hidden])")?.attr("src")
-                cover?.let { if (it.startsWith("http")) it else URI(baseUrl).resolve(it).toString() }
+                val html = fetchText(bookUrl)
+                val nextData = extractNextData(html)
+                val serie = nextData
+                    .getAsJsonObject("props")
+                    ?.getAsJsonObject("pageProps")
+                    ?.getAsJsonObject("serie") ?: return@tryConnect null
+                val sd = serie.getAsJsonObject("serie_data") ?: return@tryConnect null
+                val data = sd.getAsJsonObject("data") ?: return@tryConnect null
+                data.get("image")?.asString
             }
         }
 
     override suspend fun getBookDescription(bookUrl: String): Response<String?> =
         withContext(Dispatchers.Default) {
             tryConnect {
-                val doc = networkClient.get(bookUrl).toDocument()
-                doc.selectFirst(".desc-wrap .description")?.text()?.trim()
+                val html = fetchText(bookUrl)
+                val nextData = extractNextData(html)
+                val serie = nextData
+                    .getAsJsonObject("props")
+                    ?.getAsJsonObject("pageProps")
+                    ?.getAsJsonObject("serie") ?: return@tryConnect null
+                val sd = serie.getAsJsonObject("serie_data") ?: return@tryConnect null
+                val data = sd.getAsJsonObject("data") ?: return@tryConnect null
+                data.get("description")?.asString
             }
         }
 
@@ -141,15 +161,10 @@ class Wtrlab(
     override suspend fun getChapterList(bookUrl: String): Response<List<ChapterResult>> =
         withContext(Dispatchers.Default) {
             tryConnect {
-                // Extract novelId and slug from the book URL
-                // URL format: https://wtr-lab.com/novel/{novelId}/{slug}
-                val novelId = Regex("/novel/(\\d+)/").find(bookUrl)?.groupValues?.get(1)
-                    ?: return@tryConnect emptyList()
-                val slug = Regex("/novel/\\d+/([^/?#]+)").find(bookUrl)?.groupValues?.get(1) ?: ""
+                val (rawId, slug) = parseNovelUrl(bookUrl) ?: return@tryConnect emptyList()
+                val apiUrl = "$BASE_URL/api/chapters/$rawId"
+                val novelUrl = "$BASE_URL/$LOCALE/novel/$rawId/$slug"
 
-                delay(300) // Small delay to avoid rate limiting
-
-                val apiUrl = "${baseUrl}api/chapters/$novelId"
                 val response = networkClient.get(apiUrl)
                 val jsonBody = response.body?.string() ?: return@tryConnect emptyList()
                 response.close()
@@ -162,7 +177,7 @@ class Wtrlab(
                     val ch = chaptersData[i].asJsonObject
                     val order = ch.get("order")?.asInt ?: (i + 1)
                     val title = ch.get("title")?.asString ?: "Chapter $order"
-                    val chUrl = "${baseUrl}novel/$novelId/$slug/chapter-$order"
+                    val chUrl = "$BASE_URL/$LOCALE/novel/$rawId/$slug/chapter-$order"
                     chapters.add(ChapterResult(
                         title = "$order: $title",
                         url = chUrl
@@ -174,210 +189,239 @@ class Wtrlab(
 
     // ─── Chapter text ────────────────────────────────────────────────
 
-    override suspend fun getChapterText(doc: Document): String =
+    override suspend fun getChapterTitle(doc: Document): String? =
+        withContext(Dispatchers.Default) {
+            // Title is in the __NEXT_DATA__ or in the page's h1
+            val html = doc.html()
+            try {
+                val nextData = extractNextData(html)
+                val inner = nextData
+                    .getAsJsonObject("props")
+                    ?.getAsJsonObject("pageProps")
+                    ?.getAsJsonObject("chapterData")
+                    ?.getAsJsonObject("data")
+                    ?.getAsJsonObject("data")
+                inner?.get("title")?.asString
+            } catch (e: Exception) {
+                doc.selectFirst("h1")?.text()?.trim()
+            }
+        }
+
+    override suspend fun getChapterText(doc: Document): String? =
         withContext(Dispatchers.Default) {
             val chapterUrl = doc.location().ifBlank {
                 doc.selectFirst("link[rel='canonical']")?.attr("href") ?: ""
             }
             if (chapterUrl.isBlank()) return@withContext ""
 
-            // Extract novelId and chapterNo from the URL
-            // URL format: https://wtr-lab.com/novel/{novelId}/{slug}/chapter-{N}
-            val novelId = Regex("/novel/(\\d+)/").find(chapterUrl)?.groupValues?.get(1)
-                ?: return@withContext ""
-            val chapterNo = Regex("/chapter-(\\d+)").find(chapterUrl)?.groupValues?.get(1)?.toIntOrNull() ?: 1
-            val mode = getMode()
-            val translateParam = if (mode == "raw") "web" else "ai"
+            val (rawId, slug, chapterNo) = parseChapterUrl(chapterUrl) ?: return@withContext ""
+            val canonicalUrl = "$BASE_URL/$LOCALE/novel/$rawId/$slug/chapter-$chapterNo"
 
-            // POST /api/reader/get
-            val requestBody = """{"translate":"$translateParam","language":"none","raw_id":"$novelId","chapter_no":$chapterNo,"retry":false,"force_retry":false}"""
-            val request = postRequest("${baseUrl}api/reader/get", body = requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Referer", chapterUrl)
-                .addHeader("Origin", baseUrl.trimEnd('/'))
+            // Build request body — try with retry=false first, then retry=true
+            val bodyPayload = """{"translate":"web","language":"none","raw_id":"$rawId","chapter_no":$chapterNo,"retry":false,"force_retry":false}"""
+            val retryPayload = """{"translate":"web","language":"none","raw_id":"$rawId","chapter_no":$chapterNo,"retry":true,"force_retry":false}"""
 
-            val response = networkClient.call(request)
-            val respBody = response.body?.string() ?: run {
-                response.close()
-                return@withContext ""
+            // First attempt
+            var data = postReaderGet(canonicalUrl, bodyPayload)
+
+            // Check if translator warmup failed — retry with retry=true
+            if (data != null && data.get("success")?.asBoolean == false) {
+                val errorMsg = data.get("error")?.asString ?: ""
+                if ("translat" in errorMsg.lowercase()) {
+                    delay(1000)
+                    data = postReaderGet(canonicalUrl, retryPayload)
+                }
             }
-            response.close()
 
-            val json = JsonParser.parseString(respBody).asJsonObject
-            if (json.get("success")?.asBoolean == false) return@withContext ""
+            if (data == null) return@withContext ""
+            if (data.get("success")?.asBoolean == false) return@withContext ""
 
-            // Navigate: json.data.data.body
-            val outerData = json.getAsJsonObject("data") ?: return@withContext ""
+            // Navigate: json.data.data
+            val outerData = data.getAsJsonObject("data") ?: return@withContext ""
             val innerData = outerData.getAsJsonObject("data") ?: outerData
-            val body = innerData.get("body") ?: return@withContext ""
-            val rawBody = if (body.isJsonArray) body.toString() else body.asString
+            val rawBody = innerData.get("body") ?: return@withContext ""
 
-            if (rawBody.isBlank() || rawBody == "null") return@withContext ""
+            // Decrypt body (arr: or str: format)
+            val rawBodyStr = if (rawBody.isJsonArray) rawBody.toString() else rawBody.asString
+            if (rawBodyStr.isBlank() || rawBodyStr == "null") return@withContext ""
 
-            // Decrypt if encrypted (starts with "arr:")
-            val resolvedBody = if (rawBody.startsWith("arr:")) {
-                decryptBody(rawBody) ?: rawBody
-            } else {
-                rawBody
-            }
+            val decrypted = decryptBody(rawBodyStr)
 
             // Build paragraphs
-            val paragraphs = buildParagraphs(resolvedBody)
+            val paragraphs = buildParagraphs(decrypted)
 
-            // Apply glossary (in ai mode)
-            val finalText = if (mode != "raw" && paragraphs.isNotEmpty()) {
-                applyGlossary(paragraphs, novelId, chapterUrl, innerData)
+            // Apply glossary (for ai mode — we use web mode, but still check)
+            val glossaryData = innerData.getAsJsonObject("glossary_data")
+            val finalParagraphs = if (glossaryData != null) {
+                applyGlossary(paragraphs, glossaryData)
             } else {
                 paragraphs
             }
 
-            finalText.joinToString("\n\n")
+            // Clean paragraphs
+            finalParagraphs.map { cleanParagraph(it) }
+                .filter { it.isNotBlank() }
+                .joinToString("\n\n")
         }
 
-    override suspend fun getChapterTitle(doc: Document): String? =
-        withContext(Dispatchers.Default) {
-            doc.selectFirst("h1")?.text()?.trim()
+    // ─── AES-256-GCM Decryption ──────────────────────────────────────
+
+    /**
+     * Decrypt an `arr:...` / `str:...` payload from /api/reader/get.
+     *
+     * The format is: `arr:<iv_b64>:<tag_b64>:<ct_b64>` or `str:<iv_b64>:<tag_b64>:<ct_b64>`
+     * Decrypted with AES-256-GCM using the key extracted from the site's JS.
+     *
+     * Returns a List<String> (for arr:) or String (for str:).
+     */
+    private suspend fun decryptBody(raw: String): Any {
+        if (!raw.startsWith("arr:") && !raw.startsWith("str:")) {
+            return raw // plaintext
         }
 
-    // ─── Decryption ──────────────────────────────────────────────────
+        val isArr = raw.startsWith("arr:")
+        val payload = raw.substring(4)
+        val parts = payload.split(":")
+        if (parts.size != 3) return raw
 
-    private suspend fun decryptBody(rawBody: String): String? {
+        val iv = android.util.Base64.decode(parts[0], android.util.Base64.DEFAULT)
+        val tag = android.util.Base64.decode(parts[1], android.util.Base64.DEFAULT)
+        val ct = android.util.Base64.decode(parts[2], android.util.Base64.DEFAULT)
+
+        // Try local AES-GCM decryption first
+        try {
+            val keySpec = SecretKeySpec(AES_KEY, "AES")
+            // AES-GCM in Java: ciphertext = ct + tag (appended)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val gcmSpec = GCMParameterSpec(tag.size * 8, iv)
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+            // Java's GCM expects the tag appended to the ciphertext
+            val ctWithTag = ct + tag
+            val plaintext = cipher.doFinal(ctWithTag)
+            val text = String(plaintext, Charsets.UTF_8)
+            return if (isArr) {
+                val parsed = JsonParser.parseString(text)
+                if (parsed.isJsonArray) {
+                    parsed.asJsonArray.map { it.asString }
+                } else {
+                    listOf(text)
+                }
+            } else {
+                text
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "[wtrlab] local AES-GCM decrypt failed, trying proxy")
+        }
+
+        // Fallback: round-trip through the public proxy
         return try {
-            val request = postRequest(
-                PROXY_URL,
-                body = """{"payload":"$rawBody"}""".toRequestBody(JSON_MEDIA_TYPE)
-            ).addHeader("Content-Type", "application/json")
+            val proxyBody = """{"payload":"$raw"}""".toRequestBody(JSON_MEDIA_TYPE.toMediaType())
+            val proxyRequest = postRequest(PROXY_URL, body = proxyBody)
+                .addHeader("Content-Type", "application/json")
+            val proxyResponse = networkClient.call(proxyRequest)
+            val proxyRespBody = proxyResponse.body?.string() ?: return raw
+            proxyResponse.close()
+
+            val result = JsonParser.parseString(proxyRespBody)
+            when {
+                result.isJsonArray -> result.asJsonArray.map { it.asString }
+                result.isJsonObject && result.asJsonObject.has("body") ->
+                    result.asJsonObject.get("body").let {
+                        if (it.isJsonArray) it.asJsonArray.map { e -> e.asString }
+                        else it.asString
+                    }
+                else -> raw
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "[wtrlab] proxy decryption also failed")
+            raw
+        }
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────
+
+    private suspend fun fetchText(url: String): String {
+        val response = networkClient.get(url)
+        val body = response.body?.string() ?: ""
+        response.close()
+        return body
+    }
+
+    private fun extractNextData(html: String): com.google.gson.JsonObject {
+        val regex = Regex("""<script id="__NEXT_DATA__"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+        val match = regex.find(html) ?: throw RuntimeException("could not find __NEXT_DATA__ script")
+        return JsonParser.parseString(match.groupValues[1]).asJsonObject
+    }
+
+    private fun parseNovelUrl(url: String): Pair<String, String>? {
+        val regex = Regex("""/novel/(\d+)/([^/?#]+)""")
+        val match = regex.find(url) ?: return null
+        return match.groupValues[1] to match.groupValues[2]
+    }
+
+    private fun parseChapterUrl(url: String): Triple<String, String, Int>? {
+        val regex = Regex("""/novel/(\d+)/([^/?#]+)/chapter-(\d+)""")
+        val match = regex.find(url) ?: return null
+        return Triple(match.groupValues[1], match.groupValues[2], match.groupValues[3].toInt())
+    }
+
+    private suspend fun postReaderGet(chapterUrl: String, payload: String): com.google.gson.JsonObject? {
+        return try {
+            val request = postRequest("$BASE_URL/api/reader/get", body = payload.toRequestBody(JSON_MEDIA_TYPE.toMediaType()))
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Referer", chapterUrl)
+                .addHeader("Origin", BASE_URL)
+                .addHeader("Accept", "application/json, text/plain, */*")
 
             val response = networkClient.call(request)
             val respBody = response.body?.string()
             response.close()
-            if (respBody.isNullOrBlank()) return null
-
-            val data = JsonParser.parseString(respBody)
-            when {
-                data.isJsonArray -> data.toString()
-                data.isJsonObject -> {
-                    val obj = data.asJsonObject
-                    if (obj.has("body")) obj.get("body").toString()
-                    else obj.toString()
-                }
-                else -> respBody
-            }
+            if (respBody.isNullOrBlank()) null
+            else JsonParser.parseString(respBody).asJsonObject
         } catch (e: Exception) {
+            Timber.e(e, "[wtrlab] POST /api/reader/get failed")
             null
         }
     }
 
-    // ─── Paragraph building ──────────────────────────────────────────
-
-    private fun buildParagraphs(resolvedBody: String): List<String> {
-        val paragraphs = mutableListOf<String>()
-
-        try {
-            val bodyArray = JsonParser.parseString(resolvedBody)
-            if (bodyArray.isJsonArray) {
-                for (item in bodyArray.asJsonArray) {
-                    if (item.isJsonPrimitive && item.asJsonPrimitive.isString) {
-                        val text = cleanParagraph(item.asString)
-                        if (text != "[image]" && text.isNotBlank()) {
-                            paragraphs.add(text)
-                        }
-                    }
-                }
-                return paragraphs
-            }
-        } catch (_: Exception) {}
-
-        // Fallback: split by newlines
-        for (line in resolvedBody.split("\n")) {
-            val text = line.trim()
-            if (text.isNotBlank()) paragraphs.add(text)
+    private fun buildParagraphs(decrypted: Any): List<String> {
+        return when (decrypted) {
+            is List<*> -> decrypted.filterIsInstance<String>().filter { it.isNotBlank() }
+            is String -> decrypted.split("\n").filter { it.isNotBlank() }
+            else -> emptyList()
         }
-        return paragraphs
     }
 
     private fun cleanParagraph(text: String): String {
-        var result = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC)
-        result = Regex("(?i)^\\s*(Translator|Editor|Proofreader|Read\\s+(at|on|latest))[:\\s][^\\n\\r]{0,70}").replace(result, "")
-        return result.trim()
+        var result = text.trim('\uFEFF', ' ', '\t', '\r', '\n')
+        // Strip "Chapter N" / "第N章" prefix
+        result = Regex("""^\s*(Chapter\s+\d+|第\s*\d+\s*章)[^\n\r]*""").replace(result, "").trim()
+        // Strip translator/editor watermarks
+        result = Regex("""^\s*(Translator|Editor|Proofreader|Read\s+(at|on|latest))\s*[:\s][^\n\r]{0,70}""", RegexOption.IGNORE_CASE).replace(result, "").trim()
+        return result
     }
 
-    // ─── Glossary ────────────────────────────────────────────────────
+    private fun applyGlossary(paragraphs: List<String>, glossaryData: com.google.gson.JsonObject): List<String> {
+        val terms = glossaryData.getAsJsonArray("terms") ?: return paragraphs
+        if (terms.size() == 0) return paragraphs
 
-    private suspend fun applyGlossary(
-        paragraphs: List<String>,
-        novelId: String,
-        chapterUrl: String,
-        chapterData: com.google.gson.JsonObject,
-    ): List<String> {
-        // Fetch book-level glossary terms
-        val termByOriginal = mutableMapOf<String, String>()
-        try {
-            val v2Url = "${baseUrl}api/v2/reader/terms/$novelId.json"
-            val v2Response = networkClient.get(v2Url)
-            val v2Body = v2Response.body?.string()
-            v2Response.close()
-            if (v2Body != null) {
-                val v2Data = JsonParser.parseString(v2Body).asJsonObject
-                val glossaries = v2Data.getAsJsonArray("glossaries")
-                if (glossaries != null) {
-                    for (g in glossaries) {
-                        val terms = g.asJsonObject?.getAsJsonObject("data")?.getAsJsonArray("terms")
-                        if (terms != null) {
-                            for (term in terms) {
-                                val termArr = term.asJsonArray
-                                if (termArr.size() >= 2) {
-                                    val translations = termArr[0].asJsonArray
-                                    val original = termArr[1].asString
-                                    if (original.isNotBlank() && translations.size() > 0) {
-                                        termByOriginal[original] = translations[0].asString
-                                    }
-                                }
-                            }
-                            break
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        // Apply chapter-level glossary
-        val glossaryMap = mutableMapOf<Int, String>()
-        chapterData.getAsJsonObject("glossary_data")?.getAsJsonArray("terms")?.let { terms ->
-            for (i in 0 until terms.size()) {
-                val termEntry = terms[i].asJsonArray
-                if (termEntry.size() >= 2) {
-                    val raw = termEntry[0].asString
-                    val original = if (termEntry.size() > 1) termEntry[1].asString else ""
-                    val matched = termByOriginal[original] ?: raw
-                    if (matched.isNotBlank()) {
-                        glossaryMap[i] = matched
-                    }
-                }
+        // Build {idx: term} mapping (0-based index)
+        val glossary = mutableMapOf<Int, String>()
+        for (i in 0 until terms.size()) {
+            val entry = terms[i].asJsonArray
+            if (entry.size() > 0) {
+                glossary[i] = entry[0].asString
             }
         }
 
-        // Apply patches
-        val patches = mutableListOf<Pair<String, String>>()
-        chapterData.getAsJsonArray("patch")?.let { patchArr ->
-            for (p in patchArr) {
-                val pObj = p.asJsonObject
-                val zh = pObj.get("zh")?.asString ?: ""
-                val en = pObj.get("en")?.asString ?: ""
-                if (zh.isNotBlank()) patches.add(zh to en)
-            }
-        }
-
-        return paragraphs.map { para ->
-            var text = para
-            // Apply glossary markers: ※{idx}⛬ and ※{idx}〓
-            for ((idx, term) in glossaryMap) {
-                text = text.replace("※${idx}⛬", term)
-                text = text.replace("※${idx}〓", term)
-            }
-            // Apply patches
-            for ((zh, en) in patches) {
-                text = text.replace(zh, en)
+        return paragraphs.map { p ->
+            var text = p
+            for ((idx, term) in glossary) {
+                if (term.isNotBlank()) {
+                    // Two marker styles: ※{idx}⛬ (U+26EC) and ※{idx}〓 (U+3013)
+                    text = text.replace("※${idx}\u26ec", term)
+                    text = text.replace("※${idx}\u3013", term)
+                }
             }
             text
         }
