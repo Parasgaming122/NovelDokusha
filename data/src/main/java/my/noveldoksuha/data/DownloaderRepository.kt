@@ -82,11 +82,12 @@ class DownloaderRepository @Inject constructor(
             } else {
                 // No source matched the original URL — follow redirects in case
                 // the URL is a shortener or alias that redirects to a known domain.
+                // Use .use {} to ensure the Response (and its connection) is
+                // released back to the pool even if reading the URL throws.
                 val request = my.noveldokusha.network.getRequest(chapterUrl)
                 networkClient
                     .call(request, followRedirects = true)
-                    .request.url
-                    .toString()
+                    .use { it.request.url.toString() }
             }
 
             val source = originalSource ?: scraper.getCompatibleSource(realUrl)

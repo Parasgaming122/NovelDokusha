@@ -50,14 +50,13 @@ class RoyalRoad(
                 .map { match -> match.groups["class"]?.value }
                 .filterNotNull()}
             .toSet()
-        doc.selectFirst(".chapter-content")!!.let {
-            it.select("script").remove()
-            it.select("a").remove()
-            it.select(".ads-title").remove()
-            it.select(".hidden").remove()
-            hiddenClasses.forEach { hc -> it.select(hc).remove() }
-            TextExtractor.get(it)
-        }
+        val contentEl = doc.selectFirst(".chapter-content") ?: return@withContext ""
+        contentEl.select("script").remove()
+        contentEl.select("a").remove()
+        contentEl.select(".ads-title").remove()
+        contentEl.select(".hidden").remove()
+        hiddenClasses.forEach { hc -> contentEl.select(hc).remove() }
+        TextExtractor.get(contentEl)
     }
 
     override suspend fun getBookCoverImageUrl(

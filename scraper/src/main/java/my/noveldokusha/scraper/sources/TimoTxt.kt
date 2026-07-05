@@ -22,16 +22,14 @@ import java.net.URI
 /**
  * Direct Chinese source for timotxt.com.
  *
- * **Fetching**: All HTTP fetches go directly to `https://www.timotxt.com/`.
- * The Cloudflare bypass interceptors in the networking module handle any
- * CF challenges automatically (may be slow on first request, fast after
- * the cf_clearance cookie is cached).
+ * Fetching goes directly to `https://www.timotxt.com/` — the Cloudflare
+ * bypass interceptors handle any CF challenges automatically (slow on the
+ * first request, fast after the `cf_clearance` cookie is cached). Content
+ * is shown as raw Chinese text — this source does NOT translate.
  *
- * **Content**: Raw Chinese text with junk patterns stripped. No translation.
- *
- * **WebView**: `transformWebviewUrl()` converts timotxt.com URLs to the
- * translate.goog proxy with params, so the browser shows translated
- * (English) content via the proxy's JavaScript.
+ * WebView: `transformWebviewUrl()` converts timotxt.com URLs to the
+ * translate.goog proxy with `_x_tr_*` params so the browser shows an
+ * English-translated page (the proxy's JS handles translation).
  */
 class TimoTxt(
     private val networkClient: NetworkClient
@@ -56,18 +54,13 @@ class TimoTxt(
         )
     }
 
-    /**
-     * No transformation needed for OkHttp fetching — fetch directly
-     * from timotxt.com. The CF interceptors handle challenges.
-     */
+    /** No transform for OkHttp — fetch directly from timotxt.com. */
     override suspend fun transformChapterUrl(url: String): String = url
 
-    /**
-     * Convert timotxt.com URL to translate.goog proxy URL with params
-     * for WebView. The proxy's JavaScript translates the page to English
-     * in the browser.
-     */
-    override suspend fun transformWebviewUrl(url: String): String {
+    /** Convert timotxt.com → translate.goog with params for the browser. */
+    override suspend fun transformWebviewUrl(url: String): String = toTranslateProxyUrl(url)
+
+    private fun toTranslateProxyUrl(url: String): String {
         if (url.isBlank()) return url
         var cleanUrl = url
             .replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
@@ -125,12 +118,8 @@ class TimoTxt(
             val metaDesc = doc.selectFirst("meta[name=description]")
                 ?.attr("content")
                 ?.trim()
-            if (!metaDesc.isNullOrBlank()) {
-                metaDesc
-            } else {
-                doc.selectFirst(".intro")
-                    ?.let { TextExtractor.get(it).trim() }
-            }
+            if (!metaDesc.isNullOrBlank()) metaDesc
+            else doc.selectFirst(".intro")?.let { TextExtractor.get(it).trim() }
         }
     }
 
@@ -138,12 +127,12 @@ class TimoTxt(
         bookUrl: String
     ): Response<List<ChapterResult>> = withContext(Dispatchers.Default) {
         tryConnect {
-            val dirUrl = bookUrl.toUrlBuilderSafe()
-                .addPath("dir")
-                .toString()
-
+            val dirUrl = bookUrl.toUrlBuilderSafe().addPath("dir").toString()
             val doc = networkClient.get(dirUrl).toDocument()
 
+            // The /dir page has two <ul> inside .chaplist: a 12-link "latest"
+            // sidebar (newest first) and an ".all" complete list (oldest
+            // first). Target the .all list — already in reader order.
             val chapterLinks = doc.select(".chaplist ul.all li a[href]")
                 .takeIf { it.isNotEmpty() }
                 ?: doc.select(".chaplist ul li a[href]")
@@ -167,26 +156,20 @@ class TimoTxt(
                 .toString()
 
             val doc = networkClient.get(url).toDocument()
-            val books = doc.select("ul.list.flex > li")
-                .mapNotNull {
-                    val link = it.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
-                    val cover = it.selectFirst("img[src]")?.attr("src") ?: ""
-                    val title = link.text().trim()
-                    if (title.isBlank()) return@mapNotNull null
-                    BookResult(
-                        title = title,
-                        url = URI(baseUrl).resolve(link.attr("href")).toString(),
-                        coverImageUrl = cover
-                    )
-                }
+            val books = doc.select("ul.list.flex > li").mapNotNull {
+                val link = it.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
+                val cover = it.selectFirst("img[src]")?.attr("src") ?: ""
+                val title = link.text().trim()
+                if (title.isBlank()) return@mapNotNull null
+                BookResult(
+                    title = title,
+                    url = URI(baseUrl).resolve(link.attr("href")).toString(),
+                    coverImageUrl = cover
+                )
+            }
 
             val hasNextPage = doc.selectFirst("li.next.pagination-link:not(.disabled)") != null
-
-            PagedList(
-                list = books,
-                index = index,
-                isLastPage = !hasNextPage
-            )
+            PagedList(list = books, index = index, isLastPage = !hasNextPage)
         }
     }
 
@@ -207,42 +190,27 @@ class TimoTxt(
                     ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
                     ?: ""
                 return@tryConnect PagedList(
-                    list = listOf(
-                        BookResult(
-                            title = title,
-                            url = input,
-                            coverImageUrl = cover
-                        )
-                    ),
+                    list = listOf(BookResult(title = title, url = input, coverImageUrl = cover)),
                     index = index,
                     isLastPage = true
                 )
             }
 
-            val url = baseUrl.toUrlBuilderSafe()
-                .addPath("search")
-                .addPath(input)
-                .toString()
-
+            val url = baseUrl.toUrlBuilderSafe().addPath("search").addPath(input).toString()
             val doc = networkClient.get(url).toDocument()
-            val books = doc.select("ul.list.flex > li")
-                .mapNotNull {
-                    val link = it.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
-                    val cover = it.selectFirst("img[src]")?.attr("src") ?: ""
-                    val title = link.text().trim()
-                    if (title.isBlank()) return@mapNotNull null
-                    BookResult(
-                        title = title,
-                        url = URI(baseUrl).resolve(link.attr("href")).toString(),
-                        coverImageUrl = cover
-                    )
-                }
+            val books = doc.select("ul.list.flex > li").mapNotNull {
+                val link = it.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
+                val cover = it.selectFirst("img[src]")?.attr("src") ?: ""
+                val title = link.text().trim()
+                if (title.isBlank()) return@mapNotNull null
+                BookResult(
+                    title = title,
+                    url = URI(baseUrl).resolve(link.attr("href")).toString(),
+                    coverImageUrl = cover
+                )
+            }
 
-            PagedList(
-                list = books,
-                index = index,
-                isLastPage = true
-            )
+            PagedList(list = books, index = index, isLastPage = true)
         }
     }
 }

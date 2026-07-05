@@ -21,6 +21,7 @@ import my.noveldokusha.scraper.sources.NovelPhoenix
 import my.noveldokusha.scraper.sources.Novelku
 import my.noveldokusha.scraper.sources.ReadNovelFull
 import my.noveldokusha.scraper.sources.Reddit
+import my.noveldokusha.scraper.sources.RemoteSourceLoader
 import my.noveldokusha.scraper.sources.RoyalRoad
 import my.noveldokusha.scraper.sources.Saikai
 import my.noveldokusha.scraper.sources.SakuraNovel
@@ -32,6 +33,8 @@ import my.noveldokusha.scraper.sources.WbNovel
 import my.noveldokusha.scraper.sources.Wuxia
 import my.noveldokusha.scraper.sources.WuxiaBox
 import my.noveldokusha.scraper.sources.WuxiaWorld
+import timber.log.Timber
+import java.util.Collections
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,53 +43,71 @@ class Scraper @Inject constructor(
     networkClient: NetworkClient,
     localSource: LocalSource,
     appPreferences: AppPreferences,
+    private val remoteSourceLoader: RemoteSourceLoader,
 ) {
     val databasesList = setOf(
         NovelUpdates(networkClient),
         BakaUpdates(networkClient)
     )
 
-    val sourcesList = setOf(
-        localSource,
-        // ---- English ----
-        LightNovelsTranslations(networkClient),
-        ReadNovelFull(networkClient),
-        RoyalRoad(networkClient),
-        my.noveldokusha.scraper.sources.NovelUpdates(networkClient),
-        Reddit(),
-        AT(),
-        Wuxia(networkClient),
-        NovelFire(networkClient),
-        NovelPhoenix(networkClient),
-        NovelCool(networkClient),
-        Lnori(networkClient),
-        WuxiaBox(networkClient),
-        Sousetsuka(),
-        Saikai(networkClient),
-        BoxNovel(networkClient),
-        LightNovelWorld(networkClient),
-        NovelHall(networkClient),
-        WuxiaWorld(networkClient),
-        MeioNovel(networkClient),
-        MoreNovel(networkClient),
-        Novelku(networkClient),
-        WbNovel(networkClient),
-        // ---- Indonesian ----
-        IndoWebnovel(networkClient),
-        BacaLightnovel(networkClient),
-        SakuraNovel(networkClient),
-        // ---- Chinese ----
-        TimoTxt(networkClient),
-        TimoTxtTranslate(networkClient),
-        TimoTxtGemini(
-            networkClient = networkClient,
-            geminiApiKey = appPreferences.GEMINI_API_KEY.value,
-            geminiModel = appPreferences.GEMINI_MODEL.value,
-        ),
-    )
+    // Mutable set so external Lua sources can be added at runtime.
+    // Synchronized for thread safety — the catalog explorer reads this
+    // from the main thread while the remote loader writes from a
+    // background coroutine.
+    private val _sourcesList = Collections.synchronizedSet(mutableSetOf<SourceInterface>())
 
-    val sourcesCatalogsList = sourcesList.filterIsInstance<SourceInterface.Catalog>()
-    val sourcesCatalogsLanguagesList = sourcesCatalogsList.mapNotNull { it.language }.toSet()
+    val sourcesList: Set<SourceInterface> get() = _sourcesList.toSet()
+
+    init {
+        _sourcesList.addAll(setOf(
+            localSource,
+            // ---- English ----
+            LightNovelsTranslations(networkClient),
+            ReadNovelFull(networkClient),
+            RoyalRoad(networkClient),
+            my.noveldokusha.scraper.sources.NovelUpdates(networkClient),
+            Reddit(),
+            AT(),
+            Wuxia(networkClient),
+            NovelFire(networkClient),
+            NovelPhoenix(networkClient),
+            NovelCool(networkClient),
+            Lnori(networkClient),
+            WuxiaBox(networkClient),
+            Sousetsuka(),
+            Saikai(networkClient),
+            BoxNovel(networkClient),
+            LightNovelWorld(networkClient),
+            NovelHall(networkClient),
+            WuxiaWorld(networkClient),
+            MeioNovel(networkClient),
+            MoreNovel(networkClient),
+            Novelku(networkClient),
+            WbNovel(networkClient),
+            // ---- Indonesian ----
+            IndoWebnovel(networkClient),
+            BacaLightnovel(networkClient),
+            SakuraNovel(networkClient),
+            // ---- Chinese ----
+            TimoTxt(networkClient),
+            TimoTxtTranslate(networkClient),
+            TimoTxtGemini(
+                networkClient = networkClient,
+                geminiApiKey = appPreferences.GEMINI_API_KEY.value,
+                geminiModel = appPreferences.GEMINI_MODEL.value,
+            ),
+            // ---- MTL (Machine Translation) ----
+            my.noveldokusha.scraper.sources.Wtrlab(networkClient),
+        ))
+    }
+
+    // Computed properties — re-evaluate each time so they pick up
+    // dynamically-added external Lua sources.
+    val sourcesCatalogsList: List<SourceInterface.Catalog>
+        get() = sourcesList.filterIsInstance<SourceInterface.Catalog>()
+
+    val sourcesCatalogsLanguagesList: Set<my.noveldokusha.core.LanguageCode>
+        get() = sourcesCatalogsList.mapNotNull { it.language }.toSet()
 
     private fun String.isCompatibleWithBaseUrl(baseUrl: String): Boolean {
         val normalizedUrl = if (this.endsWith("/")) this else "$this/"
@@ -104,6 +125,29 @@ class Scraper @Inject constructor(
         databasesList.find { url.isCompatibleWithBaseUrl(it.baseUrl) }
 
     /**
+     * Load external Lua source plugins from HnDK0's GitHub repository.
+     *
+     * This is async — call from a background coroutine (e.g. App.onCreate).
+     * Sources are added to [sourcesList] as they load, so the catalog
+     * explorer picks them up on its next recomputation.
+     *
+     * Languages loaded: en, zh, mtl (excluding wtrlab from mtl — the user
+     * has a custom native Kotlin implementation for that site).
+     *
+     * On network failure, cached plugins from a previous successful load
+     * are still used.
+     */
+    suspend fun loadExternalSources() {
+        try {
+            val externalSources = remoteSourceLoader.loadAllSources()
+            _sourcesList.addAll(externalSources)
+            Timber.i("Scraper: loaded ${externalSources.size} external HnDK0 sources")
+        } catch (e: Exception) {
+            Timber.e(e, "Scraper: failed to load external sources: ${e.message}")
+        }
+    }
+
+    /**
      * Find alternative sources that can serve the same book as [url].
      *
      * This enables the "switch source" feature: a novel favorited on one
@@ -111,32 +155,16 @@ class Scraper @Inject constructor(
      * two TimoTxt variants (TimoTxtTranslate, TimoTxtGemini) because they
      * all share the same path structure on timotxt.com
      * (`/{novelId}/` and `/{novelId}/{chNum}.html`).
-     *
-     * The three TimoTxt sources use distinct baseUrls for routing:
-     *   - TimoTxt:           `https://www.timotxt.com/`
-     *   - TimoTxtTranslate:  `https://www-timotxt-com.translate.goog/`
-     *   - TimoTxtGemini:     `https://www-timotxt-com-gemini.goog/`
-     *
-     * To convert a URL from one source to another, we extract the path
-     * (`/{novelId}/...`) and prepend the target source's baseUrl.
-     *
-     * Returns a list of (source, convertedUrl) pairs, EXCLUDING the current
-     * source. Returns an empty list if the URL doesn't belong to a TimoTxt
-     * source or there are no alternatives.
      */
     fun getAlternativeSources(url: String): List<Pair<SourceInterface.Catalog, String>> {
-        // The three TimoTxt source IDs. All share the same URL path structure.
         val timotxtSourceIds = setOf("timotxt", "timotxt_translate", "timotxt_gemini")
 
         val currentSource = getCompatibleSourceCatalog(url) ?: return emptyList()
         if (currentSource.id !in timotxtSourceIds) return emptyList()
 
-        // Extract the path portion: everything after the host.
-        // e.g. "https://www.timotxt.com/0910595344/dir" → "/0910595344/dir"
         val path = runCatching {
             val uri = android.net.Uri.parse(url)
             val p = uri.path ?: return emptyList()
-            // Uri.path returns "/0910595344/dir" — already starts with /
             if (p.isEmpty()) return emptyList()
             p
         }.getOrNull() ?: return emptyList()

@@ -61,6 +61,7 @@ compose-material3Android = "1.2.1"
 crux = "5.0"
 gson = "2.10.1"
 jsoup = "1.17.2"
+luaj = "3.0.1"
 translate = "17.0.2"
 moshi = "1.15.0"
 room = "2.6.1"
@@ -122,6 +123,7 @@ okhttp-glideIntegration = { module = "com.github.bumptech.glide:okhttp3-integrat
 # Data manipulation (html, serialization, ...)
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+luaj = { module = "org.luaj:luaj-jse", version.ref = "luaj" }
 moshi = { module = "com.squareup.moshi:moshi", version.ref = "moshi" }
 moshi-kotlin = { module = "com.squareup.moshi:moshi-kotlin", version.ref = "moshi" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }

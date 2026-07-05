@@ -2,19 +2,11 @@ name: Release FOSS
 
 # Manually-triggered release build for the FOSS flavor.
 #
-# Builds, signs with v1+v2 (CRITICAL — TV/OEM package installers REQUIRE
-# v1 / JAR signing), verifies the signature, verifies applicationId, then
-# publishes a GitHub Release.
-#
 # Required GitHub secrets (Settings → Secrets and variables → Actions):
-#   SIGNING_KEY         base64-encoded .jks keystore
+#   SIGNING_KEY         base64-encoded .jks keystore  (run: base64 -w0 keystore.jks)
 #   KEY_STORE_PASSWORD  keystore password
 #   ALIAS               key alias inside the keystore
 #   KEY_PASSWORD        key password
-#
-# To create the base64 secret locally:
-#   base64 -w0 noveldokusha-release.jks
-# (Copy the entire output, including any trailing newline, into SIGNING_KEY.)
 
 on:
   workflow_dispatch:
@@ -43,6 +35,12 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          sdk-platform: '34'
+          sdk-build-tools: '34.0.0'
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -61,8 +59,6 @@ jobs:
         run: |
           if ! grep -Eq '^\s*applicationId = "com\.paras\.noveldokusha"' app/build.gradle.kts; then
             echo "::error::applicationId in app/build.gradle.kts is NOT com.paras.noveldokusha."
-            echo "This is a publish-blocker. Fix it before triggering a release."
-            echo "See BUILD.md §Precautions for why this keeps getting reverted."
             exit 1
           fi
           echo "✓ applicationId verified in source"
@@ -78,31 +74,44 @@ jobs:
             gradle-release-foss-${{ runner.os }}-
 
       - name: Setup APK signing keystore
+        id: keystore
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           ALIAS: ${{ secrets.ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -z "$SIGNING_KEY" ]; then
-            echo "::error::SIGNING_KEY secret is not set. Add it under Settings → Secrets and variables → Actions."
+          MISSING=""
+          [ -z "$SIGNING_KEY" ] && MISSING="$MISSING SIGNING_KEY"
+          [ -z "$KEY_STORE_PASSWORD" ] && MISSING="$MISSING KEY_STORE_PASSWORD"
+          [ -z "$ALIAS" ] && MISSING="$MISSING ALIAS"
+          [ -z "$KEY_PASSWORD" ] && MISSING="$MISSING KEY_PASSWORD"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing GitHub secrets:$MISSING"
+            echo ""
+            echo "Add them under Settings → Secrets and variables → Actions."
+            echo "  SIGNING_KEY         = base64-encoded .jks file (run: base64 -w0 keystore.jks)"
+            echo "  KEY_STORE_PASSWORD  = keystore password"
+            echo "  ALIAS               = key alias"
+            echo "  KEY_PASSWORD        = key password"
             exit 1
           fi
-          if [ -z "$KEY_STORE_PASSWORD" ] || [ -z "$ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::error::One or more signing secrets are missing (KEY_STORE_PASSWORD / ALIAS / KEY_PASSWORD)."
+
+          echo -n "$SIGNING_KEY" | base64 -d > app/parasdokusha-release.jks
+          if [ ! -s app/parasdokusha-release.jks ]; then
+            echo "::error::SIGNING_KEY decoded to an empty file."
+            echo "Make sure you base64-encoded the .jks with: base64 -w0 parasdokusha-release.jks"
             exit 1
           fi
-          echo -n "$SIGNING_KEY" | base64 -d > app/noveldokusha-release.jks
-          # Write ci-signing.properties WITHOUT leading whitespace.
-          # (Earlier version of this workflow had indented heredoc lines that
-          # produced "          storeFile=..." which Properties.load() rejected.)
+          echo "✓ Keystore decoded ($(stat -c%s app/parasdokusha-release.jks) bytes)"
+
           {
-            echo "storeFile=noveldokusha-release.jks"
+            echo "storeFile=parasdokusha-release.jks"
             echo "storePassword=$KEY_STORE_PASSWORD"
             echo "keyAlias=$ALIAS"
             echo "keyPassword=$KEY_PASSWORD"
           } > ci-signing.properties
-          echo "✓ Keystore and signing config created"
+          echo "✓ Signing config created"
 
       - name: Build release APK (FOSS flavor)
         run: |
@@ -120,7 +129,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           BUILD_TOOLS=$ANDROID_HOME/build-tools/34.0.0
-          KEYSTORE=app/noveldokusha-release.jks
+          KEYSTORE=app/parasdokusha-release.jks
 
           APK_LIST=$(find app/build/outputs/apk/foss/release -name '*.apk')
           if [ -z "$APK_LIST" ]; then
@@ -130,20 +139,9 @@ jobs:
 
           for apk in $APK_LIST; do
             echo "=== Re-signing $apk ==="
-
-            # 1. Strip existing signature (AGP signed with v2-only by default)
             cp "$apk" /tmp/unsigned.apk
             (cd /tmp && zip -d unsigned.apk 'META-INF/*' > /dev/null)
-
-            # 2. Zipalign (required before v2 signing)
             $BUILD_TOOLS/zipalign -f 4 /tmp/unsigned.apk /tmp/aligned.apk
-
-            # 3. Sign with v1 (JAR) + v2 (APK Signature Scheme v2)
-            #    CRITICAL: v1 MUST be enabled. TV/OEM package installers
-            #    (Android TV, Xiaomi MIUI, Huawei EMUI, etc.) often REQUIRE
-            #    v1 / JAR signing — without it, the APK is reported as
-            #    "corrupt" or "parsing error" and can break the installer
-            #    itself. See BUILD.md §Signing.
             $BUILD_TOOLS/apksigner sign \
               --ks "$KEYSTORE" \
               --ks-key-alias "$ALIAS" \
@@ -156,32 +154,24 @@ jobs:
               --min-sdk-version 23 \
               --out "$apk" \
               /tmp/aligned.apk
-
             rm /tmp/unsigned.apk /tmp/aligned.apk
           done
 
-      - name: "Fail-fast: verify v1+v2 signing + applicationId + versionCode"
+      - name: "Fail-fast: verify v1+v2 signing + applicationId"
         env:
           EXPECTED_APP_ID: com.paras.noveldokusha
         run: |
           BUILD_TOOLS=$ANDROID_HOME/build-tools/34.0.0
-
           for apk in app/build/outputs/apk/foss/release/*.apk; do
             echo "=== Verifying $apk ==="
-
-            # --- 1. Signature verification ---
-            echo "--- Signature verification ---"
             $BUILD_TOOLS/apksigner verify --verbose --min-sdk-version 23 "$apk" > /tmp/verify.txt 2>&1 || {
               echo "::error::apksigner verify failed"
               cat /tmp/verify.txt
               exit 1
             }
             cat /tmp/verify.txt | head -12
-
             if ! grep -q "Verified using v1 scheme (JAR signing): true" /tmp/verify.txt; then
               echo "::error::APK is NOT signed with v1 (JAR) scheme."
-              echo "This WILL break TV/OEM package installers. Refusing to release."
-              echo "See BUILD.md §Signing for the fix."
               exit 1
             fi
             if ! grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/verify.txt; then
@@ -189,25 +179,22 @@ jobs:
               exit 1
             fi
             echo "✓ v1 + v2 signing verified"
-
-            # --- 2. applicationId verification ---
-            echo "--- Package verification ---"
             BADGE=$($BUILD_TOOLS/aapt dump badging "$apk" | grep -E "^package:" | head -1)
             echo "$BADGE"
             if ! echo "$BADGE" | grep -q "name='$EXPECTED_APP_ID'"; then
-              echo "::error::applicationId is NOT $EXPECTED_APP_ID — refusing to release."
+              echo "::error::applicationId is NOT $EXPECTED_APP_ID"
               exit 1
             fi
             echo "✓ applicationId verified"
           done
 
-      - name: Create APK env info entries, move APK
+      - name: Rename APK and set env vars
         run: python .github/build_scripts/extract_info.py
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: NovelDokusha v${{ env.APP_VERSION }} (FOSS)
+          name: ParasDokusha v${{ env.APP_VERSION }} (FOSS)
           tag_name: v${{ env.APP_VERSION }}-foss
           files: ${{ env.APK_FILE_PATH_foss }}
           generate_release_notes: true
@@ -219,7 +206,7 @@ jobs:
       - name: Clean up keystore
         if: always()
         run: |
-          rm -f app/noveldokusha-release.jks ci-signing.properties
+          rm -f app/parasdokusha-release.jks ci-signing.properties
 
       - name: Upload build reports on failure
         uses: actions/upload-artifact@v4

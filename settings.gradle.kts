@@ -31,6 +31,7 @@ include(":data")
 
 include(":tooling:local_database")
 include(":tooling:epub_parser")
+include(":tooling:lua_engine")
 include(":tooling:text_translator:translator")
 include(":tooling:text_translator:domain")
 include(":tooling:text_translator:translator_nop")

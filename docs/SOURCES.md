@@ -294,7 +294,33 @@ The three TimoTxt sources (`TimoTxt`, `TimoTxtTranslate`, `TimoTxtGemini`)
 all read from `www.timotxt.com`, a Chinese novel site behind Cloudflare.
 They differ in how they fetch content and whether they translate it.
 
-### The Cloudflare bypass trick
+### Two URL transforms: fetching vs webview
+
+Each TimoTxt source overrides **two** methods on `SourceInterface`:
+
+| Method | Called by | Purpose |
+|---|---|---|
+| `transformChapterUrl(url)` | `DownloaderRepository.bookChapter()` (OkHttp fetch) | Convert the stored routing URL to a URL that returns the raw HTML the app will parse and (optionally) translate |
+| `transformWebviewUrl(url)` | `ReaderViewModel.transformUrlForWeb()` (in-app browser) | Convert the stored routing URL to a URL that the WebView can render usefully — the browser runs JavaScript, so the translate.goog proxy can translate in-place |
+
+The separation is critical: OkHttp doesn't run JavaScript, so fetching
+from `translate.goog` returns the original Chinese HTML (which the app
+then translates via API). WebView DOES run JavaScript, so loading the
+`translate.goog` URL with `_x_tr_*` params makes the proxy's JS
+translate the page to English in the browser.
+
+| Source | Stored URL host | `transformChapterUrl` → fetches from | `transformWebviewUrl` → opens in browser |
+|---|---|---|---|
+| `TimoTxt` | `www.timotxt.com` | `www.timotxt.com` (unchanged) | `www-timotxt-com.translate.goog` + `_x_tr_*` params |
+| `TimoTxtTranslate` | `www-timotxt-com.translate.goog` | `www.timotxt.com` (strip params) | `www-timotxt-com.translate.goog` + `_x_tr_*` params |
+| `TimoTxtGemini` | `www-timotxt-com-gemini.goog` | `www.timotxt.com` | `www-timotxt-com.translate.goog` + `_x_tr_*` params |
+
+The `gemini.goog` and `translate.goog` (no-params) hostnames are
+**routing keys only** — they don't resolve in DNS (or return HTTP 400
+without params). They exist so `Scraper.getCompatibleSource()` can
+distinguish books belonging to each source by URL prefix.
+
+### The Cloudflare bypass
 
 `www.timotxt.com` is behind Cloudflare, which can challenge non-browser
 HTTP clients. Direct OkHttp fetches may get a 403/503 challenge page.
@@ -306,18 +332,6 @@ requests that carry the standard `Sec-Fetch-*`, `Sec-CH-UA-*`, and
 `Accept-*` headers. The `CloudFareVerificationInterceptor` (Tier 2/3)
 is still in the chain as a fallback for when Cloudflare escalates to a
 JS challenge; on timotxt.com this rarely triggers in practice.
-
-**Important**: The `translate.goog` domain mentioned in older versions
-of this document is **not** used for HTTP fetching. It exists only as a
-**routing key** — a fake `baseUrl` that lets the app's
-`getCompatibleSource()` distinguish books belonging to the
-`TimoTxtTranslate` source from the plain `TimoTxt` source. All actual
-HTTP traffic goes to `https://www.timotxt.com/`. The
-`transformChapterUrl()` method converts the stored `translate.goog` URL
-back to `timotxt.com` before each fetch; without this conversion the
-reader would try to fetch from `translate.goog` (which returns HTTP 400
-without Google Translate query params) and the chapter body would never
-load.
 
 ### The `toTranslateUrl()` helper
 

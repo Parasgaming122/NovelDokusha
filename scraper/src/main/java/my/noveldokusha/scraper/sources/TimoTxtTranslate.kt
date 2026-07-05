@@ -26,25 +26,25 @@ import java.net.URI
 /**
  * Auto-translating source for timotxt.com via the Google Translate free API.
  *
- * **URL routing**: Uses `https://www-timotxt-com.translate.goog/` as the
- * baseUrl so `getCompatibleSource()` can distinguish this source's books
- * from the plain TimoTxt source. This domain is a routing key only —
- * all actual HTTP fetching goes to `https://www.timotxt.com/`.
+ * URL routing: Uses `https://www-timotxt-com.translate.goog/` as the baseUrl
+ * so `getCompatibleSource()` can distinguish this source's books from the
+ * plain TimoTxt source. This domain is a routing key only — all actual HTTP
+ * fetching goes to `https://www.timotxt.com/`.
  *
- * **Fetching** (OkHttp): `transformChapterUrl()` converts the stored
- * translate.goog URL back to `timotxt.com` before each fetch. The CF
- * interceptors handle any Cloudflare challenges. The app receives
- * Chinese HTML and translates it via the Google Translate API.
+ * Fetching (OkHttp): `transformChapterUrl()` converts the stored
+ * translate.goog URL back to timotxt.com before each fetch. The CF
+ * interceptors handle any Cloudflare challenges. The app receives Chinese
+ * HTML and translates it via the Google Translate API.
  *
- * **WebView**: `transformWebviewUrl()` converts the stored translate.goog
- * URL to the translate.goog proxy WITH `_x_tr_*` params. The proxy's
- * JavaScript translates the page to English in the browser.
+ * WebView: `transformWebviewUrl()` converts the stored translate.goog URL
+ * to the translate.goog proxy WITH `_x_tr_*` params. The proxy's JavaScript
+ * translates the page to English in the browser.
  *
- * **Translation pipeline** (mirrors timotxt_extractor.py):
+ * Translation pipeline (mirrors timotxt_extractor.py):
  *   1. Fetch Chinese HTML from timotxt.com.
  *   2. Extract text, strip notices, remove Unicode garbage.
  *   3. Batch into ≤4500 char chunks at sentence boundaries.
- *   4. POST each batch to Google Translate API.
+ *   4. POST each batch to Google Translate API (`client=gtx`).
  *   5. Clean up English junk patterns.
  */
 class TimoTxtTranslate(
@@ -131,34 +131,20 @@ class TimoTxtTranslate(
         }
     }
 
-    // ─── URL handling ───────────────────────────────────────────────────
-
     /**
-     * Convert a stored translate.goog URL to the real timotxt.com URL
-     * for OkHttp fetching. Strips any Google Translate query params.
+     * Convert a stored translate.goog URL to the real timotxt.com URL for
+     * OkHttp fetching. Strips any Google Translate query params.
      */
-    private fun resolveOriginalUrl(url: String): String {
-        return url
-            .replace("https://www-timotxt-com.translate.goog", originalBaseUrl.trimEnd('/'))
-            .replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
-            .replace("?&", "?")
-            .replace(Regex("[?&]$"), "")
-    }
+    private fun resolveOriginalUrl(url: String): String = url
+        .replace("https://www-timotxt-com.translate.goog", originalBaseUrl.trimEnd('/'))
+        .replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
+        .replace("?&", "?")
+        .replace(Regex("[?&]$"), "")
 
-    /**
-     * Transform chapter URL for OkHttp fetching.
-     * Converts translate.goog → timotxt.com so the app gets Chinese HTML
-     * which it then translates via the Google Translate API.
-     */
-    override suspend fun transformChapterUrl(url: String): String =
-        resolveOriginalUrl(url)
+    /** OkHttp fetch: convert stored translate.goog → timotxt.com. */
+    override suspend fun transformChapterUrl(url: String): String = resolveOriginalUrl(url)
 
-    /**
-     * Transform chapter URL for WebView (browser).
-     * Converts the stored translate.goog URL to include the required
-     * `_x_tr_*` params so the proxy's JavaScript translates the page
-     * to English in the browser.
-     */
+    /** WebView: convert stored URL → translate.goog with params. */
     override suspend fun transformWebviewUrl(url: String): String {
         if (url.isBlank()) return url
         var cleanUrl = url
@@ -166,7 +152,6 @@ class TimoTxtTranslate(
             .replace("?&", "?")
             .replace(Regex("[?&]$"), "")
             .trimEnd('&', '?')
-        // Ensure it's a translate.goog URL
         cleanUrl = cleanUrl.replace(
             "https://www.timotxt.com",
             "https://www-timotxt-com.translate.goog"
@@ -174,8 +159,6 @@ class TimoTxtTranslate(
         val separator = if (cleanUrl.contains("?")) "&" else "?"
         return "$cleanUrl$separator$TRANSLATE_PARAMS"
     }
-
-    // ─── Chapter content ────────────────────────────────────────────────
 
     override suspend fun getChapterTitle(doc: Document): String? =
         withContext(Dispatchers.Default) {
@@ -210,14 +193,11 @@ class TimoTxtTranslate(
             translatedEn.cleanEnglishJunk()
         }
 
-    // ─── Book metadata ──────────────────────────────────────────────────
-
     override suspend fun getBookCoverImageUrl(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val fetchUrl = resolveOriginalUrl(bookUrl)
-            val doc = networkClient.get(fetchUrl).toDocument()
+            val doc = networkClient.get(resolveOriginalUrl(bookUrl)).toDocument()
             doc.selectFirst(".cover img[src]")
                 ?.attr("src")
                 ?: doc.selectFirst("meta[property=og:image]")
@@ -229,8 +209,7 @@ class TimoTxtTranslate(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val fetchUrl = resolveOriginalUrl(bookUrl)
-            val doc = networkClient.get(fetchUrl).toDocument()
+            val doc = networkClient.get(resolveOriginalUrl(bookUrl)).toDocument()
             val rawDesc = doc.selectFirst("meta[name=description]")
                 ?.attr("content")
                 ?.trim()
@@ -246,10 +225,7 @@ class TimoTxtTranslate(
     ): Response<List<ChapterResult>> = withContext(Dispatchers.Default) {
         tryConnect {
             val fetchUrl = resolveOriginalUrl(bookUrl)
-            val dirUrl = fetchUrl.toUrlBuilderSafe()
-                .addPath("dir")
-                .toString()
-
+            val dirUrl = fetchUrl.toUrlBuilderSafe().addPath("dir").toString()
             val doc = networkClient.get(dirUrl).toDocument()
 
             val chapterLinks = doc.select(".chaplist ul.all li a[href]")
@@ -257,10 +233,7 @@ class TimoTxtTranslate(
                 ?: doc.select(".chaplist ul li a[href]")
 
             val titles = chapterLinks.map { it.text().trim() }
-            val translatedTitles = translateBatchTitles(
-                titles,
-                maxRetries = TITLE_TRANSLATE_MAX_RETRIES
-            )
+            val translatedTitles = translateBatchTitles(titles, maxRetries = TITLE_TRANSLATE_MAX_RETRIES)
 
             chapterLinks.mapIndexed { index, element ->
                 val realUrl = URI(originalBaseUrl).resolve(element.attr("href")).toString()
@@ -273,15 +246,12 @@ class TimoTxtTranslate(
         }
     }
 
-    // ─── Catalog ────────────────────────────────────────────────────────
-
     override suspend fun getCatalogList(
         index: Int
     ): Response<PagedList<BookResult>> = withContext(Dispatchers.Default) {
         tryConnect {
             val page = index + 1
             val url = "${originalBaseUrl}bookstack/?page=$page"
-
             val doc = networkClient.get(url).toDocument()
 
             val rawBooks = doc.select("ul.list.flex > li").mapNotNull { li ->
@@ -308,12 +278,7 @@ class TimoTxtTranslate(
             }
 
             val hasNextPage = doc.selectFirst("li.next.pagination-link:not(.disabled)") != null
-
-            PagedList(
-                list = books,
-                index = index,
-                isLastPage = !hasNextPage
-            )
+            PagedList(list = books, index = index, isLastPage = !hasNextPage)
         }
     }
 
@@ -352,7 +317,6 @@ class TimoTxtTranslate(
                 .addPath("search")
                 .addPath(input)
                 .toString()
-
             val doc = networkClient.get(searchUrl).toDocument()
             val rawBooks = doc.select("ul.list.flex > li").mapNotNull { li ->
                 val link = li.selectFirst("h3 a[href], a[href]") ?: return@mapNotNull null
@@ -377,11 +341,7 @@ class TimoTxtTranslate(
                 )
             }
 
-            PagedList(
-                list = books,
-                index = index,
-                isLastPage = true
-            )
+            PagedList(list = books, index = index, isLastPage = true)
         }
     }
 
@@ -424,14 +384,10 @@ class TimoTxtTranslate(
                     .add("dt", "t")
                     .toString()
 
-                val formBody = FormBody.Builder()
-                    .add("q", text)
-                    .build()
-
+                val formBody = FormBody.Builder().add("q", text).build()
                 val request = postRequest(url, body = formBody)
                 val response = networkClient.call(request)
                 val json = response.body.string()
-
                 return@withContext parseTranslationResponse(json)
             } catch (e: Exception) {
                 if (attempt < maxRetries - 1) {
@@ -499,27 +455,22 @@ class TimoTxtTranslate(
             }
         }
 
-        if (currentBatch.isNotEmpty()) {
-            batches.add(currentBatch.toString())
-        }
-
+        if (currentBatch.isNotEmpty()) batches.add(currentBatch.toString())
         return batches
     }
 
-    private fun parseTranslationResponse(json: String): String? {
-        return try {
-            val root = JsonParser.parseString(json).asJsonArray
-            val translatedParts = mutableListOf<String>()
-            for (item in root[0].asJsonArray) {
-                val innerArray = item.asJsonArray
-                if (innerArray.size() > 0 && !innerArray[0].isJsonNull) {
-                    translatedParts.add(innerArray[0].asString)
-                }
+    private fun parseTranslationResponse(json: String): String? = try {
+        val root = JsonParser.parseString(json).asJsonArray
+        val translatedParts = mutableListOf<String>()
+        for (item in root[0].asJsonArray) {
+            val innerArray = item.asJsonArray
+            if (innerArray.size() > 0 && !innerArray[0].isJsonNull) {
+                translatedParts.add(innerArray[0].asString)
             }
-            translatedParts.joinToString("")
-        } catch (e: Exception) {
-            null
         }
+        translatedParts.joinToString("")
+    } catch (e: Exception) {
+        null
     }
 }
 

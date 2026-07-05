@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
@@ -254,7 +255,11 @@ internal class ReaderSession(
             )
         }
         readerTextToSpeech.onClose()
-        scope.coroutineContext.cancelChildren()
+        // Fully cancel the session scope (not just its children) so any
+        // coroutine that's still in the launch queue is discarded and any
+        // subsequent (erroneous) launch on this scope fails fast instead of
+        // quietly running after the reader has closed.
+        scope.cancel()
         NarratorMediaControlsService.stop(context)
     }
 

@@ -42,6 +42,12 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          sdk-platform: '34'
+          sdk-build-tools: '34.0.0'
+
       - name: Verify gradle wrapper is present
         run: |
           chmod +x ./gradlew
@@ -116,7 +122,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NovelDokusha-debug-foss
+          name: ParasDokusha-debug-foss
           path: app/build/outputs/apk/foss/debug/*.apk
           if-no-files-found: error
           retention-days: 30

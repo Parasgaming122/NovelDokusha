@@ -121,8 +121,9 @@ internal class ReaderViewModel @Inject constructor(
      * Transform a chapter URL for opening in WebView.
      *
      * Sources like TimoTxt, TimoTxtTranslate, and TimoTxtGemini store
-     * URLs using their own routing domains. The WebView needs a real,
-     * fetchable URL that the browser can load and translate.
+     * URLs using their own routing domains (timotxt.com,
+     * translate.goog, gemini.goog). The WebView needs a real, fetchable
+     * URL that the browser can load and translate.
      *
      * `transformWebviewUrl()` converts the stored routing URL to a
      * browser-friendly URL:

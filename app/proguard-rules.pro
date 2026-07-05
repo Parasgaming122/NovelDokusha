@@ -47,6 +47,24 @@
 -keep class my.noveldokusha.network.ScraperCookieJar { *; }
 
 ################################################################################
+# Lua engine (luaj-jse) — keep all luaj classes. The Lua interpreter uses
+# reflection and ServiceLoader to register its ScriptEngineFactory, and R8
+# strips these if not explicitly kept.
+#
+# javax.script.* and org.apache.bcel.* are NOT available on Android — luaj
+# references them for its JSR-223 ScriptEngine integration, but we use luaj
+# directly via JsePlatform (not through javax.script). The -dontwarn rules
+# suppress R8's "missing class" errors for these unused APIs.
+################################################################################
+-keep class org.luaj.** { *; }
+-keep class my.noveldokusha.lua_engine.** { *; }
+-keep class my.noveldokusha.scraper.sources.LuaSourceAdapter { *; }
+-keep class my.noveldokusha.scraper.sources.RemoteSourceLoader { *; }
+-keep class my.noveldokusha.scraper.sources.Wtrlab { *; }
+-dontwarn javax.script.**
+-dontwarn org.apache.bcel.**
+
+################################################################################
 # Cloudflare / WebView cookie bridge — CookieManager is accessed at runtime.
 ################################################################################
 -keep class android.webkit.CookieManager { *; }

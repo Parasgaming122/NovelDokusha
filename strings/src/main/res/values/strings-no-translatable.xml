@@ -30,5 +30,6 @@
     <string translatable="false" name="source_name_timotxt">TimoTxt</string>
     <string translatable="false" name="source_name_timotxt_translate">TimoTxt (Translated)</string>
     <string translatable="false" name="source_name_timotxt_gemini">TimoTxt (Gemini)</string>
+    <string translatable="false" name="source_name_wtrlab">WTR-LAB</string>
 
 </resources>

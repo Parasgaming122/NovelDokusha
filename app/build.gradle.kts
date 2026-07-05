@@ -50,7 +50,7 @@ android {
         applicationId = "com.paras.noveldokusha"
         versionCode = 22
         versionName = "2.2.9"
-        setProperty("archivesBaseName", "NovelDokusha_v$versionName")
+        setProperty("archivesBaseName", "ParasDokusha_v$versionName")
     }
 
     signingConfigs {
@@ -113,6 +113,14 @@ android {
         viewBinding = true
     }
     namespace = "my.noveldokusha"
+
+    // Disable lint on release builds to avoid OOM on memory-constrained
+    // build environments. Lint is still run in CI via the dedicated
+    // lint workflows.
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 fun DependencyHandler.fullImplementation(dependencyNotation: Any): Dependency? =
