@@ -22,22 +22,16 @@ import java.net.URI
 /**
  * Direct Chinese source for timotxt.com.
  *
- * **URL routing**: Uses `https://www.timotxt.com/` as the baseUrl. All
- * stored URLs use the `timotxt.com` domain so `getCompatibleSource()`
- * matches this source (not the translate/gemini variants).
+ * **Fetching**: All HTTP fetches go directly to `https://www.timotxt.com/`.
+ * The Cloudflare bypass interceptors in the networking module handle any
+ * CF challenges automatically (may be slow on first request, fast after
+ * the cf_clearance cookie is cached).
  *
- * **Fetching**: All HTTP fetches go through the `translate.goog` proxy
- * (with `_x_tr_*` params) for Cloudflare bypass. The proxy returns the
- * original Chinese HTML to OkHttp; this source does NOT translate —
- * the reader shows raw Chinese text.
+ * **Content**: Raw Chinese text with junk patterns stripped. No translation.
  *
- * **WebView**: `transformChapterUrl()` converts `timotxt.com` URLs to
- * `translate.goog` URLs with params. The reader calls this before
- * opening webview, so the user sees the Google-Translate version in
- * the browser (a bonus for users who want quick translation without
- * switching sources).
- *
- * **Chapter content**: Raw Chinese text with junk patterns stripped.
+ * **WebView**: `transformWebviewUrl()` converts timotxt.com URLs to the
+ * translate.goog proxy with params, so the browser shows translated
+ * (English) content via the proxy's JavaScript.
  */
 class TimoTxt(
     private val networkClient: NetworkClient
@@ -63,33 +57,30 @@ class TimoTxt(
     }
 
     /**
-     * Convert a timotxt.com URL to the translate.goog proxy URL with
-     * params. Used for all HTTP fetching (CF bypass) and for webview.
+     * No transformation needed for OkHttp fetching — fetch directly
+     * from timotxt.com. The CF interceptors handle challenges.
      */
-    private fun toTranslateUrl(url: String): String {
-        if (url.isBlank()) return url
+    override suspend fun transformChapterUrl(url: String): String = url
 
+    /**
+     * Convert timotxt.com URL to translate.goog proxy URL with params
+     * for WebView. The proxy's JavaScript translates the page to English
+     * in the browser.
+     */
+    override suspend fun transformWebviewUrl(url: String): String {
+        if (url.isBlank()) return url
         var cleanUrl = url
             .replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
             .replace("?&", "?")
             .replace(Regex("[?&]$"), "")
             .trimEnd('&', '?')
-
         cleanUrl = cleanUrl.replace(
             "https://www.timotxt.com",
             "https://www-timotxt-com.translate.goog"
         )
-
         val separator = if (cleanUrl.contains("?")) "&" else "?"
         return "$cleanUrl$separator$TRANSLATE_PARAMS"
     }
-
-    /**
-     * Transform chapter URL before fetching OR opening in webview.
-     * Converts timotxt.com → translate.goog with params for CF bypass.
-     */
-    override suspend fun transformChapterUrl(url: String): String =
-        toTranslateUrl(url)
 
     override suspend fun getChapterTitle(doc: Document): String? =
         withContext(Dispatchers.Default) {
@@ -118,7 +109,7 @@ class TimoTxt(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val doc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
+            val doc = networkClient.get(bookUrl).toDocument()
             doc.selectFirst(".cover img[src]")
                 ?.attr("src")
                 ?: doc.selectFirst("meta[property=og:image]")
@@ -130,7 +121,7 @@ class TimoTxt(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val doc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
+            val doc = networkClient.get(bookUrl).toDocument()
             val metaDesc = doc.selectFirst("meta[name=description]")
                 ?.attr("content")
                 ?.trim()
@@ -147,15 +138,12 @@ class TimoTxt(
         bookUrl: String
     ): Response<List<ChapterResult>> = withContext(Dispatchers.Default) {
         tryConnect {
-            val dirUrl = toTranslateUrl(
-                bookUrl.toUrlBuilderSafe().addPath("dir").toString()
-            )
+            val dirUrl = bookUrl.toUrlBuilderSafe()
+                .addPath("dir")
+                .toString()
 
             val doc = networkClient.get(dirUrl).toDocument()
 
-            // The /dir page has TWO <ul> lists inside .chaplist:
-            //   1. ul.flex (12 links, newest first — sidebar)
-            //   2. ul.flex.all (all links, oldest first — complete list)
             val chapterLinks = doc.select(".chaplist ul.all li a[href]")
                 .takeIf { it.isNotEmpty() }
                 ?: doc.select(".chaplist ul li a[href]")
@@ -174,11 +162,9 @@ class TimoTxt(
     ): Response<PagedList<BookResult>> = withContext(Dispatchers.Default) {
         tryConnect {
             val page = index + 1
-            val url = toTranslateUrl(
-                catalogUrl.toUrlBuilderSafe()
-                    .add("page", page.toString())
-                    .toString()
-            )
+            val url = catalogUrl.toUrlBuilderSafe()
+                .add("page", page.toString())
+                .toString()
 
             val doc = networkClient.get(url).toDocument()
             val books = doc.select("ul.list.flex > li")
@@ -212,14 +198,8 @@ class TimoTxt(
             if (input.isBlank() || index > 0)
                 return@tryConnect PagedList.createEmpty(index = index)
 
-            // If the input looks like a URL, treat it as a direct book URL
-            if (input.startsWith("http") && (input.contains("timotxt.com") || input.contains("translate.goog"))) {
-                val cleanUrl = input.replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
-                    .replace("?&", "?")
-                    .replace(Regex("[?&]$"), "")
-                    .trimEnd('&', '?')
-                    .replace("https://www-timotxt-com.translate.goog", "https://www.timotxt.com")
-                val doc = networkClient.get(toTranslateUrl(cleanUrl)).toDocument()
+            if (input.startsWith("http") && input.contains("timotxt.com")) {
+                val doc = networkClient.get(input).toDocument()
                 val title = doc.selectFirst("h1, .book-name, .book-title")
                     ?.text()?.trim() ?: return@tryConnect PagedList.createEmpty(index)
                 val cover = doc.selectFirst(".cover img[src]")
@@ -230,7 +210,7 @@ class TimoTxt(
                     list = listOf(
                         BookResult(
                             title = title,
-                            url = cleanUrl,
+                            url = input,
                             coverImageUrl = cover
                         )
                     ),
@@ -239,12 +219,10 @@ class TimoTxt(
                 )
             }
 
-            val url = toTranslateUrl(
-                baseUrl.toUrlBuilderSafe()
-                    .addPath("search")
-                    .addPath(input)
-                    .toString()
-            )
+            val url = baseUrl.toUrlBuilderSafe()
+                .addPath("search")
+                .addPath(input)
+                .toString()
 
             val doc = networkClient.get(url).toDocument()
             val books = doc.select("ul.list.flex > li")

@@ -22,30 +22,19 @@ import org.jsoup.nodes.Document
 /**
  * TimoTxt (Gemini) — Chinese novels auto-translated to English via Gemini AI.
  *
- * **URL routing strategy**: Uses `https://www-timotxt-com-gemini.goog/` as
- * the baseUrl for routing — this fake domain lets `getCompatibleSource()`
- * distinguish Gemini books from TimoTxtTranslate books. The domain does
- * NOT resolve in DNS; it exists only as a routing key.
+ * **URL routing**: Uses `https://www-timotxt-com-gemini.goog/` as baseUrl
+ * for routing. This fake domain doesn't resolve in DNS — it's a routing
+ * key so `getCompatibleSource()` can distinguish Gemini books.
  *
- * **Fetching**: All HTTP fetches go through the `translate.goog` proxy
- * (with `_x_tr_*` params) for Cloudflare bypass — same as TimoTxtTranslate.
- * The proxy returns Chinese HTML to OkHttp. The app then translates the
- * extracted text via the **Gemini API** (not Google Translate API).
+ * **Fetching** (OkHttp): `transformChapterUrl()` converts gemini.goog →
+ * timotxt.com before each fetch. The CF interceptors handle challenges.
+ * The app receives Chinese HTML and translates it via the Gemini API.
  *
- * **WebView**: `transformChapterUrl()` converts `gemini.goog` URLs to
- * `translate.goog` URLs with params. The reader calls this before
- * opening webview, so the user sees the Google-Translate version in
- * the browser. For the actual chapter reading experience, the Gemini
- * translation (higher quality) is used.
+ * **WebView**: `transformWebviewUrl()` converts gemini.goog → translate.goog
+ * with params, so the browser shows Google-Translate-translated content.
  *
- * **Gemini API**:
- *   - Endpoint: POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
- *   - Models: gemini-2.5-flash (default, 10 RPM/250 RPD), gemini-2.5-flash-lite (30 RPM/1000 RPD)
- *   - JSON I/O: [{"id": 0, "text": "..."}, ...]
- *   - Two-pass translation: literal → polished English
- *
- * **Settings**: API key stored in AppPreferences (user provides their own).
- * Without a key, all translation is skipped and Chinese text is shown.
+ * **Gemini API**: If no API key is configured, all translation is skipped
+ * and Chinese text is shown.
  */
 class TimoTxtGemini(
     private val networkClient: NetworkClient,
@@ -93,64 +82,56 @@ class TimoTxtGemini(
     // ── URL conversion ──────────────────────────────────────────────────
 
     /**
-     * Convert any URL to the translate.goog proxy URL with params.
-     * Used for all HTTP fetching (CF bypass) and for webview.
+     * Convert a gemini.goog URL back to the original timotxt.com URL.
      */
-    private fun toTranslateUrl(url: String): String {
-        if (url.isBlank()) return url
+    private fun fromGeminiUrl(geminiUrl: String): String {
+        if (!geminiUrl.contains("gemini.goog")) return geminiUrl
+        val uri = java.net.URI(geminiUrl)
+        val path = uri.path ?: "/"
+        return "https://www.timotxt.com$path"
+    }
 
+    /**
+     * Transform chapter URL for OkHttp fetching.
+     * Converts gemini.goog → timotxt.com so the app gets Chinese HTML
+     * which it then translates via the Gemini API.
+     */
+    override suspend fun transformChapterUrl(url: String): String = fromGeminiUrl(url)
+
+    /**
+     * Transform chapter URL for WebView (browser).
+     * Converts gemini.goog → translate.goog with params, so the proxy's
+     * JavaScript translates the page to English in the browser.
+     */
+    override suspend fun transformWebviewUrl(url: String): String {
+        if (url.isBlank()) return url
         var cleanUrl = url
             .replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
             .replace("?&", "?")
             .replace(Regex("[?&]$"), "")
             .trimEnd('&', '?')
-
         // Convert gemini.goog → timotxt.com → translate.goog
         cleanUrl = cleanUrl.replace(
             "https://www-timotxt-com-gemini.goog",
-            "https://www-timotxt.com"
+            "https://www.timotxt.com"
         )
         cleanUrl = cleanUrl.replace(
             "https://www.timotxt.com",
             "https://www-timotxt-com.translate.goog"
         )
-
         val separator = if (cleanUrl.contains("?")) "&" else "?"
         return "$cleanUrl$separator$TRANSLATE_PARAMS"
     }
 
     /**
-     * Convert a timotxt.com URL to the gemini.goog routing URL (for storage).
+     * Convert an original timotxt.com URL to its gemini.goog routing URL.
      */
     private fun toGeminiUrl(originalUrl: String): String {
-        // Strip translate params first
-        var url = originalUrl
-            .replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
-            .replace("?&", "?")
-            .replace(Regex("[?&]$"), "")
-            .trimEnd('&', '?')
-
-        url = url.replace(
-            "https://www-timotxt-com.translate.goog",
-            "https://www.timotxt.com"
-        )
-        if (url.contains("gemini.goog")) return url
-
-        val uri = java.net.URI(url)
+        if (originalUrl.contains("gemini.goog")) return originalUrl
+        val uri = java.net.URI(originalUrl)
         val path = uri.path ?: "/"
         return "https://www-timotxt-com-gemini.goog$path"
     }
-
-    /**
-     * Transform chapter URL before fetching OR opening in webview.
-     * Converts gemini.goog → translate.goog with params.
-     *
-     * This is called by:
-     * - DownloaderRepository.bookChapter() before OkHttp fetch
-     * - ReaderActivity.onOpenChapterInWeb() before opening webview
-     */
-    override suspend fun transformChapterUrl(url: String): String =
-        toTranslateUrl(url)
 
     // ── Chapter content extraction ──────────────────────────────────────
 
@@ -235,7 +216,8 @@ class TimoTxtGemini(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val doc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
+            val originalUrl = fromGeminiUrl(bookUrl)
+            val doc = networkClient.get(originalUrl).toDocument()
             doc.selectFirst(".cover img[src]")
                 ?.attr("src")
                 ?: doc.selectFirst("meta[property=og:image]")
@@ -247,7 +229,8 @@ class TimoTxtGemini(
         bookUrl: String
     ): Response<String?> = withContext(Dispatchers.Default) {
         tryConnect {
-            val doc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
+            val originalUrl = fromGeminiUrl(bookUrl)
+            val doc = networkClient.get(originalUrl).toDocument()
 
             val description = doc.selectFirst("meta[name=description]")
                 ?.attr("content")
@@ -270,9 +253,12 @@ class TimoTxtGemini(
         bookUrl: String
     ): Response<List<ChapterResult>> = withContext(Dispatchers.Default) {
         tryConnect {
-            val dirUrl = toTranslateUrl(
-                bookUrl.toUrlBuilderSafe().addPath("dir").toString()
-            )
+            val originalUrl = fromGeminiUrl(bookUrl)
+            val dirUrl = if (originalUrl.endsWith("/dir") || originalUrl.endsWith("/dir/")) {
+                originalUrl
+            } else {
+                originalUrl.trimEnd('/') + "/dir"
+            }
 
             val doc = networkClient.get(dirUrl).toDocument()
             val allChapterLinks = doc.select(".chaplist ul.all li a[href]")
@@ -281,15 +267,15 @@ class TimoTxtGemini(
                 allChapterLinks.map { link ->
                     ChapterResult(
                         title = link.text().trim(),
-                        url = toGeminiUrl(resolveUrl(link.attr("href"), originalBaseUrl))
+                        url = toGeminiUrl(resolveUrl(link.attr("href"), originalUrl))
                     )
                 }
             } else {
-                val infoDoc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
+                val infoDoc = networkClient.get(originalUrl).toDocument()
                 infoDoc.select(".chaplist ul li a[href]").map { link ->
                     ChapterResult(
                         title = link.text().trim(),
-                        url = toGeminiUrl(resolveUrl(link.attr("href"), originalBaseUrl))
+                        url = toGeminiUrl(resolveUrl(link.attr("href"), originalUrl))
                     )
                 }
             }
@@ -321,9 +307,9 @@ class TimoTxtGemini(
     ): Response<PagedList<BookResult>> = withContext(Dispatchers.Default) {
         tryConnect {
             val page = index + 1
-            val url = toTranslateUrl(
-                "https://www.timotxt.com/bookstack/?page=$page"
-            )
+            val url = "https://www.timotxt.com/bookstack/".toUrlBuilderSafe().apply {
+                if (page > 1) add("page", page.toString())
+            }
 
             val doc = networkClient.get(url).toDocument()
             val rawBooks = doc.select("ul.list.flex > li").mapNotNull { item ->
@@ -379,7 +365,7 @@ class TimoTxtGemini(
 
             if (isUrlLike(input)) {
                 val bookUrl = normalizeUrl(input)
-                val doc = networkClient.get(toTranslateUrl(bookUrl)).toDocument()
+                val doc = networkClient.get(bookUrl).toDocument()
                 val rawTitle = doc.selectFirst("h1.title")?.text()?.trim()
                     ?: doc.selectFirst("h1")?.text()?.trim()
                     ?: doc.selectFirst("meta[name=og:novel:book_name]")?.attr("content")
@@ -408,11 +394,9 @@ class TimoTxtGemini(
                 )
             }
 
-            val searchUrl = toTranslateUrl(
-                "https://www.timotxt.com/search/".toUrlBuilderSafe()
-                    .addPath(input)
-                    .toString()
-            )
+            val searchUrl = "https://www.timotxt.com/search/".toUrlBuilderSafe()
+                .addPath(input)
+                .toString()
 
             val doc = networkClient.get(searchUrl).toDocument()
             val rawBooks = doc.select("ul.list.flex > li").mapNotNull { item ->
@@ -484,19 +468,12 @@ class TimoTxtGemini(
                 trimmed.startsWith("https://") ||
                 trimmed.startsWith("www.") ||
                 trimmed.contains("timotxt.com") ||
-                trimmed.contains("timotxt.cn") ||
                 trimmed.contains("gemini.goog") ||
                 trimmed.contains("translate.goog")
     }
 
     private fun normalizeUrl(input: String): String {
         var url = input.trim()
-        // Strip translate params
-        url = url.replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
-            .replace("?&", "?")
-            .replace(Regex("[?&]$"), "")
-            .trimEnd('&', '?')
-
         if (url.contains("gemini.goog")) {
             url = url.replace(
                 "https://www-timotxt-com-gemini.goog",
@@ -519,20 +496,8 @@ class TimoTxtGemini(
     }
 
     private fun resolveUrl(href: String, base: String): String {
-        // Strip translate params from href if present
-        val cleanHref = href.replace(Regex("[?&]_x_tr_(sl|tl|hl|pto|pto_ctx)=[^&]*"), "")
-            .replace("?&", "?")
-            .replace(Regex("[?&]$"), "")
-            .trimEnd('&', '?')
-
-        if (cleanHref.startsWith("http")) {
-            // Convert translate.goog URLs back to timotxt.com
-            return cleanHref.replace(
-                "https://www-timotxt-com.translate.goog",
-                "https://www.timotxt.com"
-            )
-        }
-        if (cleanHref.startsWith("/")) return originalBaseUrl.trimEnd('/') + cleanHref
-        return base.trimEnd('/') + "/" + cleanHref.removePrefix("/")
+        if (href.startsWith("http")) return href
+        if (href.startsWith("/")) return originalBaseUrl.trimEnd('/') + href
+        return base.trimEnd('/') + "/" + href.removePrefix("/")
     }
 }

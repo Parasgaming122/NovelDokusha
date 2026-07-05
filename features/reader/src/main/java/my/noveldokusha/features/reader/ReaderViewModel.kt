@@ -121,20 +121,19 @@ internal class ReaderViewModel @Inject constructor(
      * Transform a chapter URL for opening in WebView.
      *
      * Sources like TimoTxt, TimoTxtTranslate, and TimoTxtGemini store
-     * URLs using their own routing domains (timotxt.com,
-     * translate.goog, gemini.goog). The WebView needs the actual
-     * fetchable URL — `transformChapterUrl()` converts the stored
-     * routing URL to a real URL that the browser can load.
+     * URLs using their own routing domains. The WebView needs a real,
+     * fetchable URL that the browser can load and translate.
      *
-     * For TimoTxtTranslate this adds the `_x_tr_*` params so the
-     * translate.goog proxy serves the translated page (via JS).
-     * For TimoTxtGemini this converts gemini.goog → translate.goog.
-     * For TimoTxt this converts timotxt.com → translate.goog (CF bypass
-     * + JS translation in the browser).
-     * For Reddit this converts www.reddit.com → old.reddit.com.
+     * `transformWebviewUrl()` converts the stored routing URL to a
+     * browser-friendly URL:
+     * - TimoTxt: timotxt.com → translate.goog with params (JS translates)
+     * - TimoTxtTranslate: translate.goog (no params) → translate.goog with params
+     * - TimoTxtGemini: gemini.goog → translate.goog with params
+     * - Reddit: www.reddit.com → old.reddit.com
+     * - Other sources: URL unchanged
      */
     suspend fun transformUrlForWeb(url: String): String {
         val source = scraper.getCompatibleSource(url) ?: return url
-        return source.transformChapterUrl(url)
+        return source.transformWebviewUrl(url)
     }
 }

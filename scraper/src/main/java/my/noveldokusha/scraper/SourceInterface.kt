@@ -18,8 +18,13 @@ sealed interface SourceInterface {
     val isLocalSource: Boolean get() = true
     val requiresLogin: Boolean get() = false
 
-    // Transform current url to preferred url
+    // Transform current url to preferred url for HTTP fetching (OkHttp)
     suspend fun transformChapterUrl(url: String): String = url
+
+    // Transform current url for opening in WebView (browser)
+    // Override in sources that need a different URL for the browser
+    // (e.g. TimoTxt sources convert to translate.goog proxy for JS translation)
+    suspend fun transformWebviewUrl(url: String): String = url
 
     suspend fun getChapterTitle(doc: Document): String? = null
     suspend fun getChapterText(doc: Document): String? = null
