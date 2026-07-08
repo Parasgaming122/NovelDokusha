@@ -34,7 +34,6 @@ import my.noveldokusha.scraper.sources.Wuxia
 import my.noveldokusha.scraper.sources.WuxiaBox
 import my.noveldokusha.scraper.sources.WuxiaWorld
 import timber.log.Timber
-import java.util.Collections
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,16 +49,21 @@ class Scraper @Inject constructor(
         BakaUpdates(networkClient)
     )
 
-    // Mutable set so external Lua sources can be added at runtime.
-    // Synchronized for thread safety — the catalog explorer reads this
-    // from the main thread while the remote loader writes from a
-    // background coroutine.
-    private val _sourcesList = Collections.synchronizedSet(mutableSetOf<SourceInterface>())
+    // Mutable StateFlow so that ScraperRepository can reactively observe
+    // changes when external Lua sources are loaded asynchronously.
+    // The flow emits the current set of sources whenever addAll is called.
+    private val _sourcesList = kotlinx.coroutines.flow.MutableStateFlow<Set<SourceInterface>>(emptySet())
 
-    val sourcesList: Set<SourceInterface> get() = _sourcesList.toSet()
+    val sourcesList: Set<SourceInterface> get() = _sourcesList.value
+
+    /**
+     * Reactive flow of the source list. Emits whenever sources are added
+     * (including async external Lua source loading).
+     */
+    val sourcesListFlow: kotlinx.coroutines.flow.StateFlow<Set<SourceInterface>> = _sourcesList
 
     init {
-        _sourcesList.addAll(setOf(
+        _sourcesList.value = setOf(
             localSource,
             // ---- English ----
             LightNovelsTranslations(networkClient),
@@ -98,7 +102,7 @@ class Scraper @Inject constructor(
             ),
             // ---- MTL (Machine Translation) ----
             my.noveldokusha.scraper.sources.Wtrlab(networkClient),
-        ))
+        )
     }
 
     // Computed properties — re-evaluate each time so they pick up
@@ -140,8 +144,10 @@ class Scraper @Inject constructor(
     suspend fun loadExternalSources() {
         try {
             val externalSources = remoteSourceLoader.loadAllSources()
-            _sourcesList.addAll(externalSources)
-            Timber.i("Scraper: loaded ${externalSources.size} external HnDK0 sources")
+            // Atomically update the StateFlow so that all observers
+            // (ScraperRepository → CatalogExplorerViewModel → UI) re-emit.
+            _sourcesList.value = _sourcesList.value + externalSources
+            Timber.i("Scraper: loaded ${externalSources.size} external HnDK0 sources (total: ${_sourcesList.value.size})")
         } catch (e: Exception) {
             Timber.e(e, "Scraper: failed to load external sources: ${e.message}")
         }
