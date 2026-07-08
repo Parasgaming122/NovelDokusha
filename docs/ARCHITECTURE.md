@@ -1,12 +1,12 @@
 # Architecture
 
 This document describes the module structure, dependency graph, and data
-flow of ParasDokusha. It is intended for contributors and AI agents who
-need to navigate the codebase.
+flow of ParasDokusha v3.0.0. It is intended for contributors and AI agents
+who need to navigate the codebase.
 
 ## Module graph
 
-ParasDokusha is a multi-module Gradle project (29 modules). The dependency
+ParasDokusha is a multi-module Gradle project (31 modules). The dependency
 graph below shows the **intended** direction of dependencies (A → B means
 A depends on B). Cycles are forbidden.
 

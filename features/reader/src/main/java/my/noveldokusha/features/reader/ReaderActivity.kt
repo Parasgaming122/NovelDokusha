@@ -120,6 +120,13 @@ class ReaderActivity : BaseActivity() {
 
     override fun onDestroy() {
         readerViewHandlersActions.invalidate()
+        // Close the reader session when the activity is finishing (not just
+        // rotating). Without this, ReaderSession (held by @Singleton
+        // ReaderManager) leaks its scope, TTS engine, foreground service,
+        // and translation providers until the process dies.
+        if (isFinishing) {
+            viewModel.onCloseManually()
+        }
         super.onDestroy()
     }
 

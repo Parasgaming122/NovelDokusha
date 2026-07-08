@@ -30,7 +30,7 @@ internal fun databaseMigrations() = arrayOf(
     migration(9) {
         // Create ChapterTranslation table for cloud translation caching
         it.execSQL("""
-            CREATE TABLE IF NOT EXISTS ChapterTranslation (
+            CREATE TABLE ChapterTranslation (
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                 chapterUrl TEXT NOT NULL,
                 sourceLang TEXT NOT NULL,
@@ -41,7 +41,7 @@ internal fun databaseMigrations() = arrayOf(
             )
         """.trimIndent())
         it.execSQL("""
-            CREATE UNIQUE INDEX IF NOT EXISTS index_ChapterTranslation_chapterUrl_sourceLang_targetLang
+            CREATE UNIQUE INDEX index_ChapterTranslation_chapterUrl_sourceLang_targetLang
             ON ChapterTranslation(chapterUrl, sourceLang, targetLang)
         """.trimIndent())
     },

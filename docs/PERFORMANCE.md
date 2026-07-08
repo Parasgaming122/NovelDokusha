@@ -1,23 +1,34 @@
 # Performance Notes
 
 This document captures known performance characteristics, bottlenecks, and
-the findings from the v2.2.9 audit pass. It is intended for contributors
-who want to make the app faster or avoid re-introducing regressions.
+the findings from the v2.2.9 and v3.0.0 audit passes. It is intended for
+contributors who want to make the app faster or avoid re-introducing
+regressions.
 
-## Coroutine cancellation propagation
+## v3.0.0 Audit Fixes
 
-**Fixed in v2.2.9**: `Call.await()` in `networking/okhttpExtensions.kt`
-now uses `suspendCancellableCoroutine` and cancels the underlying OkHttp
-`Call` when the calling coroutine is cancelled.
+### ReaderSession leak on Activity destroy (CRITICAL — fixed)
+`ReaderActivity.onDestroy()` now calls `viewModel.onCloseManually()` when `isFinishing` is true. Previously, navigating up via the toolbar (not back button) leaked the entire ReaderSession — TTS engine, foreground service, 5 coroutines, translation providers — until process death.
 
-**Before**: a user who navigated away from the reader while a chapter was
-fetching would leave the HTTP request running to completion — wasting
-battery, bandwidth, and a socket slot in OkHttp's connection pool. With
-many sources behind Cloudflare, each "wasted" fetch could also trigger
-the WebView-based challenge solver, which is even more expensive.
+### ForegroundServiceDidNotStartInTimeException crash (CRITICAL — fixed)
+`NarratorMediaControlsService.onCreate()` now always calls `startForeground()` with a placeholder notification before checking for a null session. Previously, a race between `ReaderSession.close()` and `startForegroundService()` could skip `startForeground()`, causing the system to crash the app within 5 seconds.
 
-**After**: cancellation propagates. If the user leaves the reader, the
-in-flight `networkClient.get(...)` is cancelled within ~1 polling tick
+### LuaEngine blocking Default threads (HIGH — fixed)
+`runBlocking { }` in LuaEngine's `http_get`/`http_post`/`http_get_batch` changed to `runBlocking(Dispatchers.IO) { }`. Previously, Lua HTTP calls blocked `Dispatchers.Default` threads (sized `max(2, CPU cores)`), causing thread-pool starvation during global-source-search over 30+ Lua sources.
+
+### ReaderChaptersLoader SupervisorJob not cancelled (HIGH — fixed)
+`ReaderSession.close()` now calls `(coroutineContext[Job])?.cancel()` on the chapters loader in addition to `cancelChildren()`. Previously, the loader's `SupervisorJob` remained active after close, allowing orphan coroutines to launch.
+
+### AppPreferences CoroutineScope leak (MEDIUM — fixed)
+`toFlow()` no longer allocates a `CoroutineScope(Dispatchers.Default)` per call. The `MutableStateFlow.value` is set directly from the SharedPreferences listener (thread-safe). Previously, ~40 preferences each leaked a `SupervisorJob` that lived forever.
+
+### AppPreferences thread-unsafe listener set (MEDIUM — fixed)
+`preferencesChangeListeners` changed from `mutableSetOf()` to `Collections.synchronizedSet()`. Previously, concurrent modification between `onSubscription` and `onCompletion` could corrupt the set.
+
+### Gemini default model mismatch (HIGH — fixed)
+`TranslationManagerGemini.getApiEndpoint()` now defaults to `"gemini-2.5-flash"` (matching `AppPreferences`). Previously, it defaulted to `"gemini-2.5-flash-lite"`, silently using a cheaper, lower-quality model.
+
+## v2.2.9 Audit Fixes
 (300ms worst case, the CF interceptor's poll interval).
 
 ## Cursor lifecycle

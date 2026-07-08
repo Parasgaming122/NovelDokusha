@@ -3,6 +3,14 @@
 Common runtime issues and their fixes. For build-time issues, see
 [BUILD.md §6](BUILD.md#6-common-build-errors-and-fixes).
 
+## v3.0.0 Migration Notes
+
+If upgrading from v2.2.9 or earlier:
+- **MLKit is removed** — translations now use 4 cloud providers. No language model downloads needed.
+- **Database auto-migrates** from v9 to v10 (adds ChapterTranslation table). No user action needed.
+- **Translation provider defaults to Google PA** (Enhanced) which auto-fetches an API key from wtr-lab.com. No setup required.
+- To switch providers: change `TRANSLATION_PROVIDER` in SharedPreferences (Settings UI for this is coming in a future update).
+
 ## Catalog is empty for a source
 
 **Symptoms**: You open a source in Finder, the catalog page shows no

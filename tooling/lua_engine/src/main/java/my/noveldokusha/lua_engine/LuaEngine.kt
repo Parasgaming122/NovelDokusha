@@ -219,7 +219,7 @@ class LuaEngine @Inject constructor(
                     k = n.arg1()
                 }
             }
-            val response = runBlocking { networkClient.call(request) }
+            val response = runBlocking(Dispatchers.IO) { networkClient.call(request) }
             val body = response.body?.string() ?: ""
             response.close()
             val result = LuaTable()
@@ -269,7 +269,7 @@ class LuaEngine @Inject constructor(
                 }
             }
 
-            val response = runBlocking { networkClient.call(request) }
+            val response = runBlocking(Dispatchers.IO) { networkClient.call(request) }
             val respBody = response.body?.string() ?: ""
             response.close()
             val result = LuaTable()
@@ -302,7 +302,7 @@ class LuaEngine @Inject constructor(
         val results = LuaTable()
         for ((i, url) in urls.withIndex()) {
             try {
-                val response = runBlocking { networkClient.get(url) }
+                val response = runBlocking(Dispatchers.IO) { networkClient.get(url) }
                 val body = response.body?.string() ?: ""
                 response.close()
                 val r = LuaTable()

@@ -158,9 +158,7 @@ dependencies {
     implementation(projects.scraper)
 
     // Translation feature
-    // Both flavors now use the cloud-based translation providers
-    // (Google PA, Google Free, Gemini, OpenAI) — MLKit removed
-    fullImplementation(projects.tooling.textTranslator.translatorNop)
+    fullImplementation(projects.tooling.textTranslator.translator)
     fossImplementation(projects.tooling.textTranslator.translatorNop)
 
     // Kotlin

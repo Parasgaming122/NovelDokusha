@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.take
@@ -244,7 +245,11 @@ internal class ReaderSession(
     }
 
     fun close() {
+        // Fully cancel the chapters loader scope (not just its children)
+        // so the SupervisorJob itself is cancelled — no orphan coroutines
+        // can be launched on it after close.
         readerChaptersLoader.coroutineContext.cancelChildren()
+        (readerChaptersLoader.coroutineContext[Job])?.cancel()
         when (savePositionMode.value) {
             SavePositionMode.Reading -> readerRepository.saveBookLastReadPositionState(
                 bookUrl,
@@ -255,10 +260,6 @@ internal class ReaderSession(
             )
         }
         readerTextToSpeech.onClose()
-        // Fully cancel the session scope (not just its children) so any
-        // coroutine that's still in the launch queue is discarded and any
-        // subsequent (erroneous) launch on this scope fails fast instead of
-        // quietly running after the reader has closed.
         scope.cancel()
         NarratorMediaControlsService.stop(context)
     }
