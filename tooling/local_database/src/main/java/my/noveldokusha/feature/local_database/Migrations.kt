@@ -27,6 +27,24 @@ internal fun databaseMigrations() = arrayOf(
     migration(6, MigrationsList::readLightNovelDomainChange_2_meme),
     migration(7, MigrationsList::_1stKissNovelDomainChange_1_org),
     migration(8, MigrationsList::wuxiaDomainChange_blog_to_click),
+    migration(9) {
+        // Create ChapterTranslation table for cloud translation caching
+        it.execSQL("""
+            CREATE TABLE IF NOT EXISTS ChapterTranslation (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                chapterUrl TEXT NOT NULL,
+                sourceLang TEXT NOT NULL,
+                targetLang TEXT NOT NULL,
+                translatedParagraphs TEXT NOT NULL,
+                titleTranslation TEXT NOT NULL DEFAULT '',
+                timestamp INTEGER NOT NULL DEFAULT 0
+            )
+        """.trimIndent())
+        it.execSQL("""
+            CREATE UNIQUE INDEX IF NOT EXISTS index_ChapterTranslation_chapterUrl_sourceLang_targetLang
+            ON ChapterTranslation(chapterUrl, sourceLang, targetLang)
+        """.trimIndent())
+    },
 )
 
 internal fun migration(vi: Int, migrate: (SupportSQLiteDatabase) -> Unit) =
