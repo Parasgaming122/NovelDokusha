@@ -9,5 +9,15 @@ android {
 
 dependencies {
     implementation(projects.core)
+    implementation(projects.networking)
     implementation(projects.tooling.textTranslator.domain)
+
+    // OkHttp for API calls (Gemini, OpenAI, Google PA)
+    implementation(libs.okhttp)
+
+    // Gson for JSON parsing
+    implementation(libs.gson)
+
+    // Free Google Translate library (used by TranslationManagerGoogleFree)
+    implementation("com.github.therealbush:translator:1.1.1")
 }
