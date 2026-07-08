@@ -49,7 +49,7 @@ suspend fun OkHttpClient.call(builder: Request.Builder) = newCall(builder.build(
  */
 fun Response.toDocument(): Document {
     val html = body.string()
-    return Jsoup.parse(html)
+    return Jsoup.parse(html, request.url.toString())
 }
 
 /**

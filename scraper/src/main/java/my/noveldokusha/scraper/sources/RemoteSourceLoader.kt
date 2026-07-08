@@ -174,6 +174,14 @@ class RemoteSourceLoader @Inject constructor(
 
         val displayName = "${src.name} (HnDK0)"
 
+        // Parse baseUrl from the Lua script — it's a global variable
+        // like: baseUrl = "https://www.example.com"
+        // Without this, all sources get baseUrl="https://example.com/"
+        // and getCompatibleSource() can never match them.
+        val baseUrl = parseBaseUrlFromLua(luaScript)?.let {
+            if (it.endsWith("/")) it else "$it/"
+        } ?: "https://example.com/"
+
         return LuaSourceAdapter(
             luaEngine = luaEngine,
             networkClient = networkClient,
@@ -181,7 +189,7 @@ class RemoteSourceLoader @Inject constructor(
             pluginId = src.id,
             pluginName = src.name,
             _displayName = displayName,
-            baseUrl = src.baseUrl ?: "https://example.com/",
+            baseUrl = baseUrl,
             languageCode = languageCode,
             iconUrlStr = src.icon ?: "",
         )

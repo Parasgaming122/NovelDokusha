@@ -206,8 +206,8 @@ class Wtrlab(
             val canonicalUrl = "$BASE_URL/$LOCALE/novel/$rawId/$slug/chapter-$chapterNo"
 
             // Build request body — try with retry=false first, then retry=true
-            val bodyPayload = """{"translate":"web","language":"none","raw_id":"$rawId","chapter_no":$chapterNo,"retry":false,"force_retry":false}"""
-            val retryPayload = """{"translate":"web","language":"none","raw_id":"$rawId","chapter_no":$chapterNo,"retry":true,"force_retry":false}"""
+            val bodyPayload = """{"translate":"ai","language":"none","raw_id":"$rawId","chapter_no":$chapterNo,"retry":false,"force_retry":false}"""
+            val retryPayload = """{"translate":"ai","language":"none","raw_id":"$rawId","chapter_no":$chapterNo,"retry":true,"force_retry":false}"""
 
             // First attempt
             var data = postReaderGet(canonicalUrl, bodyPayload)
