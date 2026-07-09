@@ -17,4 +17,5 @@ dependencies {
     implementation(libs.timber)
     implementation(libs.compose.androidx.activity)
     implementation(libs.compose.material3.android)
+    implementation(libs.okhttp)
 }

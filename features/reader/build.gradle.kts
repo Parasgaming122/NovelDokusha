@@ -23,6 +23,7 @@ dependencies {
     implementation(projects.tooling.algorithms)
 
     implementation(libs.androidx.media)
+    implementation(libs.compose.landscapist.glide)
     implementation(libs.compose.androidx.material.icons.extended)
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.compose.androidx.activity)

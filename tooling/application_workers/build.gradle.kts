@@ -18,4 +18,5 @@ dependencies {
     implementation(libs.timber)
     implementation(libs.androidx.workmanager)
     implementation(libs.hilt.workmanager)
+    implementation(libs.compose.landscapist.glide)
 }

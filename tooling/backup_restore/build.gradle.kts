@@ -16,4 +16,5 @@ dependencies {
 
     implementation(libs.timber)
     implementation(libs.compose.androidx.activity)
+    implementation(libs.okhttp)
 }
