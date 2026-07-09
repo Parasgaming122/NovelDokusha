@@ -160,6 +160,7 @@ dependencies {
 
     // UI
     implementation(libs.androidx.appcompat)
+    implementation(libs.material)
 
     // Test
     testImplementation(libs.test.junit)

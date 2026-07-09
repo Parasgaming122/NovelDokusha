@@ -8,7 +8,7 @@
 ## TL;DR
 
 - **App**: Android web novel reader (Kotlin, Compose + XML hybrid, Hilt DI, Room v10, OkHttp, 30+ Gradle modules)
-- **Version**: 3.0.0 (versionCode 30)
+- **Version**: 3.0.1 (versionCode 31)
 - **Application ID**: `com.paras.noveldokusha` (NEVER change — breaks updates)
 - **Namespace**: `my.noveldokusha` (different from applicationId — intentional)
 - **Display name**: ParasDokusha
@@ -17,6 +17,36 @@
 - **Translation**: 4 cloud providers (Google PA, Google Free, Gemini, OpenAI) — MLKit REMOVED in v3.0.0
 - **Lua engine**: luaj-jse 3.0.1 for external source plugins from HnDK0/external-sources
 - **Sources**: 28 built-in Kotlin sources + 24+ external Lua sources + 6 auto-translated zh sources + Wtrlab
+
+## MANDATORY: Ponytail Workflow
+
+**EVERY code change in this project MUST go through the ponytail skill first.**
+No exceptions. This is non-negotiable.
+
+### What this means:
+1. **Before writing ANY code**: Read `~/.claude/skills/ponytail/SKILL.md`
+2. **Follow the ladder**: Does it need to exist? → Already in codebase? → Stdlib? → Native? → Already-installed dep? → One line? → Minimum code
+3. **Bug fix = root cause**: Grep every caller, fix at the shared function, not the symptom path
+4. **No unrequested abstractions**: No interface with one impl, no factory for one product, no config for a value that never changes
+5. **Deletion over addition**: Boring over clever. Fewest files possible. Shortest working diff wins.
+6. **Mark simplifications**: `// ponytail: <ceiling>, <upgrade path>`
+
+### Ponytail-audit before any dependency removal:
+When auditing for unused dependencies, check BOTH:
+- **Kotlin imports** (`grep -rn "com.google.android.material" src/`)
+- **XML resource references** (`grep -rn "MaterialComponents\|colorOnPrimary\|colorSurface" src/main/res/`)
+- **R.attr references** in Kotlin (`grep -rn "R\.attr\.color" src/`)
+
+A dependency can be used via XML theme attributes even if NO Kotlin code imports it.
+The `libs.material` removal bug (build failure due to missing `colorOnPrimary` etc.) was caused by
+only checking Kotlin imports. **Always check XML resources too.**
+
+### Ponytail skills installed at:
+- `~/.claude/skills/ponytail/` — main skill (lazy senior dev)
+- `~/.claude/skills/ponytail-audit/` — whole-repo audit for over-engineering
+- `~/.claude/skills/ponytail-review/` — diff review for complexity
+- `~/.claude/skills/ponytail-debt/` — harvest `ponytail:` comments into a ledger
+- `~/.claude/skills/ponytail-gain/` — show measured impact scoreboard
 
 ## What's new in v3.0.0
 
