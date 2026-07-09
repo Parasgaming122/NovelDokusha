@@ -16,7 +16,7 @@ data class SettingsScreenState(
     val translationModelsStates: SnapshotStateList<TranslationModelState>,
     val updateAppSetting: UpdateApp,
     val libraryAutoUpdate: LibraryAutoUpdate,
-    val geminiSettings: GeminiSettings,
+    val translationSettings: TranslationSettings,
 ) {
     data class UpdateApp(
         val currentAppVersion: String,
@@ -30,9 +30,29 @@ data class SettingsScreenState(
         val autoUpdateIntervalHours: MutableState<Int>,
     )
 
-    data class GeminiSettings(
-        val apiKey: MutableState<String>,
-        val model: MutableState<String>,
-        val temperature: MutableState<Float>,
+    /**
+     * Comprehensive translation settings covering all 4 providers.
+     *
+     * Provider selection ("GOOGLE_PA", "GOOGLE_FREE", "GEMINI", "OPENAI")
+     * determines which provider-specific fields are relevant.
+     */
+    data class TranslationSettings(
+        val provider: MutableState<String>,
+        // Google PA
+        val googlePaApiKeys: MutableState<String>,
+        // Gemini
+        val geminiApiKey: MutableState<String>,
+        val geminiModel: MutableState<String>,
+        val geminiTemperature: MutableState<Float>,
+        // OpenAI
+        val openAiApiKeys: MutableState<String>,
+        val openAiBaseUrl: MutableState<String>,
+        val openAiModel: MutableState<String>,
+        // Shared LLM settings (Gemini + OpenAI)
+        val promptPreset: MutableState<String>,
+        val activeSystemPrompt: MutableState<String>,
+        val batchSize: MutableState<Int>,
+        val maxOutputTokens: MutableState<Int>,
+        val useEnglishLocale: MutableState<Boolean>,
     )
 }

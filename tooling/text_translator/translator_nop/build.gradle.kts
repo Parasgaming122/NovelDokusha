@@ -17,7 +17,4 @@ dependencies {
 
     // Gson for JSON parsing
     implementation(libs.gson)
-
-    // Free Google Translate library (used by TranslationManagerGoogleFree)
-    implementation("com.github.therealbush:translator:1.1.1")
 }

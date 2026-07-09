@@ -48,8 +48,8 @@ android {
         // under this ID and changing it breaks update compatibility and forces a
         // fresh install on every device. See BUILD.md §Precautions.
         applicationId = "com.paras.noveldokusha"
-        versionCode = 22
-        versionName = "2.2.9"
+        versionCode = 31
+        versionName = "3.0.1"
         setProperty("archivesBaseName", "ParasDokusha_v$versionName")
     }
 
@@ -163,7 +163,6 @@ dependencies {
 
     // Kotlin
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlin.script.runtime)
     implementation(libs.kotlin.stdlib)
 
     // Lifecycle components
@@ -207,7 +206,6 @@ dependencies {
     implementation(libs.moshi)
     implementation(libs.moshi.kotlin)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.retrofit)
 
     // Dependency injection
     implementation(libs.hilt.workmanager)
