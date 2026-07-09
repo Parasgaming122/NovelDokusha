@@ -136,6 +136,17 @@ val BUILT_IN_PROMPTS = listOf(
 )
 
 /**
+ * Resolves a preset name (as stored in TRANSLATION_PROMPT_PRESET) to its prompt text.
+ * Falls back to DEFAULT_TRANSLATION_PROMPT (Balanced) if the name is blank or unknown.
+ */
+fun resolvePresetPrompt(presetName: String): String {
+    if (presetName.isBlank()) return DEFAULT_TRANSLATION_PROMPT
+    return BUILT_IN_PROMPTS.firstOrNull { it.first.equals(presetName, ignoreCase = true) }
+        ?.second
+        ?: DEFAULT_TRANSLATION_PROMPT
+}
+
+/**
  * Возвращает отображаемое название языка для подстановки в промпт.
  *
  * @param langCode    BCP-47 код языка (например "zh", "ja", "en")

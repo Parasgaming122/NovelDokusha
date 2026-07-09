@@ -195,7 +195,7 @@ class AppPreferences @Inject constructor(
     }
 
     val TRANSLATION_PROMPT_PRESET = object : Preference<String>("TRANSLATION_PROMPT_PRESET") {
-        override var value by SharedPreference_String(name, preferences, "BALANCED")
+        override var value by SharedPreference_String(name, preferences, "Balanced (Default)")
     }
 
     val TRANSLATION_BATCH_SIZE = object : Preference<Int>("TRANSLATION_BATCH_SIZE") {

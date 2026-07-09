@@ -94,14 +94,6 @@ internal class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun downloadTranslationModel(lang: String) {
-        translationManager.downloadModel(lang)
-    }
-
-    fun removeTranslationModel(lang: String) {
-        translationManager.removeModel(lang)
-    }
-
     fun cleanDatabase() = appScope.launch(Dispatchers.IO) {
         appRepository.settings.clearNonLibraryData()
         appRepository.vacuum()

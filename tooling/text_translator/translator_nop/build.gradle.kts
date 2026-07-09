@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.noveldokusha.android.library)
     alias(libs.plugins.noveldokusha.android.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -15,6 +16,9 @@ dependencies {
     // OkHttp for API calls (Gemini, OpenAI, Google PA)
     implementation(libs.okhttp)
 
-    // Gson for JSON parsing
+    // Gson for JSON parsing (used by GooglePA)
     implementation(libs.gson)
+
+    // kotlinx-serialization for GoogleFree's JSON response parsing
+    implementation(libs.kotlinx.serialization.json)
 }

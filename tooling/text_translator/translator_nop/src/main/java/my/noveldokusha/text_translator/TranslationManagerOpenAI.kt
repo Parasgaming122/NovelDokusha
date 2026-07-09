@@ -1,7 +1,7 @@
 package my.noveldokusha.text_translator
 
 import my.noveldokusha.text_translator.buildSystemPrompt
-import my.noveldokusha.text_translator.DEFAULT_TRANSLATION_PROMPT
+import my.noveldokusha.text_translator.resolvePresetPrompt
 
 import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
@@ -42,8 +42,9 @@ class TranslationManagerOpenAI(
     private val appPreferences: AppPreferences
 ) : TranslationManager {
 
-    // Keep responses deterministic.
-    private val defaultTemperature = 0.2
+    // Temperature is user-configurable via GEMINI_TEMPERATURE preference (shared with Gemini).
+    private val defaultTemperature
+        get() = appPreferences.GEMINI_TEMPERATURE.value.toDouble()
 
     /** 0 = let the model decide (no max_tokens in request). */
     private val maxOutputTokens: Int
@@ -85,10 +86,16 @@ class TranslationManagerOpenAI(
             Log.d(TAG, "resolveTemplatePrompt: using override '${systemPromptOverride.take(200)}'")
             return systemPromptOverride
         }
-        val fallback = appPreferences.TRANSLATION_ACTIVE_SYSTEM_PROMPT.value
-            .ifBlank { DEFAULT_TRANSLATION_PROMPT }
-        Log.d(TAG, "resolveTemplatePrompt: no override, using fallback '${fallback.take(200)}'")
-        return fallback
+        // Priority: custom system prompt → preset → default
+        val customPrompt = appPreferences.TRANSLATION_ACTIVE_SYSTEM_PROMPT.value
+        if (customPrompt.isNotBlank()) {
+            Log.d(TAG, "resolveTemplatePrompt: using custom prompt '${customPrompt.take(200)}'")
+            return customPrompt
+        }
+        val presetName = appPreferences.TRANSLATION_PROMPT_PRESET.value
+        val presetPrompt = resolvePresetPrompt(presetName)
+        Log.d(TAG, "resolveTemplatePrompt: using preset '$presetName' -> '${presetPrompt.take(200)}'")
+        return presetPrompt
     }
 
     override val available = true
