@@ -210,13 +210,24 @@ jobs:
       - name: Rename APKs and set env vars
         run: python .github/build_scripts/extract_info.py
 
+      # ─── Debug: list all APK files found ───────────────────────────
+      - name: List APK files (debug)
+        run: |
+          echo "=== All APK files in build outputs ==="
+          find app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || echo "(none found)"
+          echo ""
+          echo "=== Env vars set by extract_info.py ==="
+          echo "APP_VERSION=${APP_VERSION:-<not set>}"
+          echo "APK_FILE_PATH_full=${APK_FILE_PATH_full:-<not set>}"
+          echo "APK_FILE_PATH_foss=${APK_FILE_PATH_foss:-<not set>}"
+
       # ─── Upload both APKs as artifacts (always, even if release fails) ─
       - name: Upload APKs as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: parasdokusha-release-apks
           path: |
-            app/build/outputs/apk/*/release/ParasDokusha_v*_*.apk
+            app/build/outputs/apk/*/release/*.apk
           if-no-files-found: error
           retention-days: 30
 

@@ -25,17 +25,17 @@ def getAPKs():
 def processAPK(path, fileName):
     fileNamePath = os.path.join(path, fileName)
     # The APK filename pattern is:
-    #   ParasDokusha_v2.2.9-full-release-unsigned.apk
-    #   ParasDokusha_v2.2.9-foss-release-unsigned.apk
+    #   ParasDokusha_v3.0.1-full-release-unsigned.apk
+    #   ParasDokusha_v3.0.1-foss-release-unsigned.apk
     # We need to extract: version, flavour (full or foss)
     #
     # Regex breakdown:
-    #   ^.++_v          → prefix + "_v" (don't capture the prefix)
-    #   (\d+\.\d+\.\d+)  → version (e.g. 2.2.9)
+    #   ^.+_v            → prefix + "_v" (don't capture the prefix)
+    #   (\d+\.\d+\.\d+)  → version (e.g. 3.0.1)
     #   -(full|foss)     → flavour (only "full" or "foss", not greedy)
     #   -.*              → rest (-release-unsigned)
     #   \.apk$           → extension
-    m = re.match(r'^.++_v(\d+\.\d+\.\d+)-(full|foss)-.*\.apk$', fileName)
+    m = re.match(r'^.+_v(\d+\.\d+\.\d+)-(full|foss)-.*\.apk$', fileName)
     if not m:
         print(f"WARNING: APK filename does not match expected pattern: {fileName}")
         print(f"  Expected: <name>_v<X.Y.Z>-<full|foss>-<rest>.apk")
