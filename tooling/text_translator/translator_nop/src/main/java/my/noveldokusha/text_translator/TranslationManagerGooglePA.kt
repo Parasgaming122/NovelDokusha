@@ -13,7 +13,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import my.noveldokusha.core.AppCoroutineScope
 import my.noveldokusha.core.appPreferences.AppPreferences
 import my.noveldokusha.network.ScraperNetworkClient
 import my.noveldokusha.text_translator.domain.GOOGLE_TRANSLATE_LANGUAGES
@@ -32,7 +31,6 @@ import java.util.concurrent.TimeUnit
  * significantly better quality than the plain-text translate.googleapis.com endpoint.
  */
 class TranslationManagerGooglePA(
-    private val coroutineScope: AppCoroutineScope,
     private val appPreferences: AppPreferences,
     private val networkClient: ScraperNetworkClient
 ) : TranslationManager {
@@ -40,7 +38,6 @@ class TranslationManagerGooglePA(
     private val client get() = networkClient.client
 
     override val available = true
-    override val isUsingOnlineTranslation = true
 
     private val translateUrl = "https://translate-pa.googleapis.com/v1/translateHtml"
     private val KEY_CACHE_DURATION_MS = 24 * 60 * 60 * 1000L
@@ -59,9 +56,6 @@ class TranslationManagerGooglePA(
             )
         })
     }
-
-    override suspend fun hasModelDownloaded(language: String): TranslationModelState? =
-        models.firstOrNull { it.language == language }
 
     override fun getTranslator(source: String, target: String, systemPromptOverride: String?): TranslatorState {
         Log.d(TAG, "getTranslator: source=$source, target=$target")
@@ -445,9 +439,6 @@ class TranslationManagerGooglePA(
         Log.d(TAG, "translateBatch: total=${normalizedTexts.size}, translated=${result.size}")
         result
     }
-
-    override fun downloadModel(language: String) {}
-    override fun removeModel(language: String) {}
 
     companion object {
         private const val TAG = "TranslationGooglePA"

@@ -4,8 +4,6 @@ import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import my.noveldokusha.core.AppCoroutineScope
-import my.noveldokusha.core.appPreferences.AppPreferences
 import my.noveldokusha.network.ScraperNetworkClient
 import my.noveldokusha.text_translator.domain.GOOGLE_TRANSLATE_LANGUAGES
 import my.noveldokusha.text_translator.domain.TranslationManager
@@ -18,24 +16,17 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 
 class TranslationManagerGoogleFree(
-    private val coroutineScope: AppCoroutineScope,
-    private val appPreferences: AppPreferences,
     private val networkClient: ScraperNetworkClient
 ) : TranslationManager {
 
     private val client get() = networkClient.client
 
     override val available = true
-    override val isUsingOnlineTranslation = true
 
     override val models = mutableStateListOf<TranslationModelState>().apply {
         addAll(GOOGLE_TRANSLATE_LANGUAGES.map { lang ->
             TranslationModelState(language = lang, available = true, downloading = false, downloadingFailed = false)
         })
-    }
-
-    override suspend fun hasModelDownloaded(language: String): TranslationModelState? {
-        return models.firstOrNull { it.language == language }
     }
 
     override fun getTranslator(source: String, target: String, systemPromptOverride: String?): TranslatorState {
@@ -288,9 +279,6 @@ class TranslationManagerGoogleFree(
 
         return result
     }
-
-    override fun downloadModel(language: String) {}
-    override fun removeModel(language: String) {}
 
     companion object {
         private const val TAG = "TranslationGoogleFree"

@@ -6,12 +6,9 @@ import my.noveldokusha.core.LanguageCode
 import my.noveldokusha.core.PagedList
 import my.noveldokusha.core.Response
 import my.noveldokusha.lua_engine.LuaEngine
-import my.noveldokusha.network.NetworkClient
-import my.noveldokusha.network.toDocument
 import my.noveldokusha.network.tryConnect
 import my.noveldokusha.scraper.R
 import my.noveldokusha.scraper.SourceInterface
-import my.noveldokusha.scraper.TextExtractor
 import my.noveldokusha.scraper.domain.BookResult
 import my.noveldokusha.scraper.domain.ChapterResult
 import org.jsoup.nodes.Document
@@ -38,10 +35,8 @@ import timber.log.Timber
  * these as community-maintained external sources loaded from GitHub.
  *
  * @param luaEngine  the shared Lua engine
- * @param networkClient the shared HTTP client (passed to Lua via http_get)
  * @param pluginScript the full .lua file content
  * @param pluginId    the plugin's unique ID (from index.yaml)
- * @param pluginName  the display name (from index.yaml)
  * @param displayName the full display name including "(HnDK0)" suffix
  * @param baseUrl     the plugin's base URL
  * @param languageCode the LanguageCode for this source (en/zh/mtl HnDK0 variant)
@@ -49,10 +44,8 @@ import timber.log.Timber
  */
 class LuaSourceAdapter(
     private val luaEngine: LuaEngine,
-    private val networkClient: NetworkClient,
     private val pluginScript: String,
     private val pluginId: String,
-    private val pluginName: String,
     private val _displayName: String,
     override val baseUrl: String,
     private val languageCode: LanguageCode?,

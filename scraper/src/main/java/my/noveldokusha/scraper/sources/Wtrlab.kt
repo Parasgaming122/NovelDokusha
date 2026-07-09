@@ -8,9 +8,7 @@ import my.noveldokusha.core.LanguageCode
 import my.noveldokusha.core.PagedList
 import my.noveldokusha.core.Response
 import my.noveldokusha.network.NetworkClient
-import my.noveldokusha.network.getRequest
 import my.noveldokusha.network.postRequest
-import my.noveldokusha.network.toDocument
 import my.noveldokusha.network.tryConnect
 import my.noveldokusha.scraper.R
 import my.noveldokusha.scraper.SourceInterface
@@ -20,7 +18,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.nodes.Document
 import timber.log.Timber
-import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec

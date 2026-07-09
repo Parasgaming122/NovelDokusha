@@ -14,7 +14,6 @@ dependencies {
     implementation(projects.networking)
     implementation(projects.tooling.luaEngine)
 
-    implementation(libs.androidx.core.ktx)
     implementation(libs.jsoup)
     implementation(libs.gson)
     implementation(libs.okhttp)

@@ -109,9 +109,6 @@ android {
         }
     }
 
-    buildFeatures {
-        viewBinding = true
-    }
     namespace = "my.noveldokusha"
 
     // Disable lint on release builds to avoid OOM on memory-constrained
@@ -122,12 +119,6 @@ android {
         abortOnError = false
     }
 }
-
-fun DependencyHandler.fullImplementation(dependencyNotation: Any): Dependency? =
-    add("fullImplementation", dependencyNotation)
-
-fun DependencyHandler.fossImplementation(dependencyNotation: Any): Dependency? =
-    add("fossImplementation", dependencyNotation)
 
 dependencies {
 
@@ -157,22 +148,11 @@ dependencies {
     implementation(projects.strings)
     implementation(projects.scraper)
 
-    // Translation feature
-    fullImplementation(projects.tooling.textTranslator.translator)
-    fossImplementation(projects.tooling.textTranslator.translatorNop)
+    // Translation feature — both flavors use the cloud translator (no MLKit)
+    implementation(projects.tooling.textTranslator.translatorNop)
 
     // Kotlin
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlin.stdlib)
-
-    // Lifecycle components
-    implementation(libs.androidx.lifecycle.viewmodel.ktx)
-    implementation(libs.androidx.lifecycle.livedata.ktx)
-    implementation(libs.androidx.lifecycle.common.java8)
-    implementation(libs.androidx.coordinatorlayout)
-
-    // Local storage directory access
-    implementation(libs.androidx.documentfile)
 
     // Android SDK
     implementation(libs.androidx.workmanager)
@@ -180,13 +160,6 @@ dependencies {
 
     // UI
     implementation(libs.androidx.appcompat)
-    implementation(libs.test.androidx.core.ktx)
-    implementation(libs.androidx.navigation.fragment.ktx)
-    implementation(libs.androidx.navigation.ui.ktx)
-    implementation(libs.androidx.activity.ktx)
-    implementation(libs.androidx.fragment.ktx)
-    implementation(libs.androidx.constraintlayout)
-    implementation(libs.material)
 
     // Test
     testImplementation(libs.test.junit)
@@ -201,41 +174,13 @@ dependencies {
     androidTestImplementation(libs.test.androidx.runner)
     androidTestUtil(libs.test.androidx.orchestrator)
 
-    // Serialization
-    implementation(libs.gson)
-    implementation(libs.moshi)
-    implementation(libs.moshi.kotlin)
-    implementation(libs.kotlinx.serialization.json)
-
-    // Dependency injection
-    implementation(libs.hilt.workmanager)
-
-    // HTML text extractor
-    implementation(libs.crux)
-    implementation(libs.readability4j)
-    implementation(libs.jsoup)
-
     // Jetpack compose
     implementation(libs.compose.androidx.activity)
     implementation(libs.compose.androidx.animation)
-    implementation(libs.compose.androidx.runtime.livedata)
-    implementation(libs.compose.androidx.lifecycle.viewmodel)
-    implementation(libs.compose.androidx.constraintlayout)
-    implementation(libs.compose.androidx.material.icons.extended)
     implementation(libs.compose.material3.android)
-    implementation(libs.compose.accompanist.systemuicontroller)
-    implementation(libs.compose.accompanist.swiperefresh)
-    implementation(libs.compose.accompanist.insets)
-    implementation(libs.compose.accompanist.pager)
-    implementation(libs.compose.accompanist.pager.indicators)
-    implementation(libs.compose.landscapist.glide)
     implementation(libs.compose.coil)
-    implementation(libs.compose.lazyColumnScrollbar)
 
     // Networking
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.interceptor.brotli)
-    implementation(libs.okhttp.interceptor.logging)
     implementation(libs.okhttp.glideIntegration)
 
     // Logging

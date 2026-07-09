@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import my.noveldokusha.core.AppCoroutineScope
 import my.noveldokusha.core.appPreferences.AppPreferences
 import my.noveldokusha.text_translator.domain.GOOGLE_TRANSLATE_LANGUAGES
 import my.noveldokusha.text_translator.domain.TranslationManager
@@ -24,7 +23,6 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class TranslationManagerGemini(
-    private val coroutineScope: AppCoroutineScope,
     private val appPreferences: AppPreferences
 ) : TranslationManager {
 
@@ -66,8 +64,6 @@ class TranslationManagerGemini(
     }
 
     override val available = true
-    override val isUsingOnlineTranslation: Boolean
-        get() = apiKeys.isNotEmpty()
 
     override val models = mutableStateListOf<TranslationModelState>().apply {
         addAll(GOOGLE_TRANSLATE_LANGUAGES.map { lang ->
@@ -78,10 +74,6 @@ class TranslationManagerGemini(
                 downloadingFailed = false
             )
         })
-    }
-
-    override suspend fun hasModelDownloaded(language: String): TranslationModelState? {
-        return models.firstOrNull { it.language == language }
     }
 
     override fun getTranslator(source: String, target: String, systemPromptOverride: String?): TranslatorState {
@@ -509,9 +501,6 @@ class TranslationManagerGemini(
             Log.d(TAG, "parseNumberedTranslations: ${it.size}/${originalTexts.size} parsed")
         }
     }
-
-    override fun downloadModel(language: String) {}
-    override fun removeModel(language: String) {}
 
     class ContentBlockedException(message: String) : IOException(message)
 

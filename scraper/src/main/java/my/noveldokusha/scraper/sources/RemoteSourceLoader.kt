@@ -1,14 +1,12 @@
 package my.noveldokusha.scraper.sources
 
 import android.content.Context
-import com.google.gson.JsonParser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import my.noveldokusha.core.LanguageCode
 import my.noveldokusha.lua_engine.LuaEngine
 import my.noveldokusha.network.NetworkClient
-import my.noveldokusha.network.getRequest
 import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
@@ -48,7 +46,6 @@ class RemoteSourceLoader @Inject constructor(
         private val EXCLUDED_SOURCES = setOf("wtrlab")
 
         private const val CACHE_DIR = "lua_plugins"
-        private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
     }
 
     private val cacheDir = File(appContext.cacheDir, CACHE_DIR).also { it.mkdirs() }
@@ -184,10 +181,8 @@ class RemoteSourceLoader @Inject constructor(
 
         return LuaSourceAdapter(
             luaEngine = luaEngine,
-            networkClient = networkClient,
             pluginScript = luaScript,
             pluginId = src.id,
-            pluginName = src.name,
             _displayName = displayName,
             baseUrl = baseUrl,
             languageCode = languageCode,
@@ -258,7 +253,7 @@ class RemoteSourceLoader @Inject constructor(
             try {
                 val luaScript = file.readText()
                 val pluginId = file.name.removePrefix("${lang}_").removeSuffix(".lua")
-                val src = HnDK0Source(id = pluginId, name = pluginId, url = "", baseUrl = null, icon = null)
+                val src = HnDK0Source(id = pluginId, name = pluginId, url = "", icon = null)
                 val adapter = createAdapter(src, luaScript, lang)
                 if (adapter != null) adapters.add(adapter)
 
@@ -278,7 +273,6 @@ class RemoteSourceLoader @Inject constructor(
         val id: String,
         val name: String,
         val url: String,
-        val baseUrl: String?,
         val icon: String?,
     ) {
         companion object {
@@ -286,7 +280,6 @@ class RemoteSourceLoader @Inject constructor(
                 id = map["id"] ?: "",
                 name = map["name"] ?: map["id"] ?: "",
                 url = map["url"] ?: "",
-                baseUrl = null, // baseUrl is in the .lua file, not the index
                 icon = map["icon"],
             )
         }

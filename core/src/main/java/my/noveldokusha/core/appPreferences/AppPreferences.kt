@@ -176,22 +176,10 @@ class AppPreferences @Inject constructor(
      * "GOOGLE_PA"   — Google Translate Enhanced (default, auto-fetches API key)
      * "GOOGLE_FREE" — Google Translate Free (no key needed)
      * "GEMINI"      — Google Gemini API (requires GEMINI_API_KEY)
-     * "OPENAI"      — OpenAI-compatible API (requires OPENAI_API_KEY)
+     * "OPENAI"      — OpenAI-compatible API (requires TRANSLATION_OPENAI_API_KEYS)
      */
     val TRANSLATION_PROVIDER = object : Preference<String>("TRANSLATION_PROVIDER") {
         override var value by SharedPreference_String(name, preferences, "GOOGLE_PA")
-    }
-
-    val OPENAI_API_KEY = object : Preference<String>("OPENAI_API_KEY") {
-        override var value by SharedPreference_String(name, preferences, "")
-    }
-
-    val OPENAI_BASE_URL = object : Preference<String>("OPENAI_BASE_URL") {
-        override var value by SharedPreference_String(name, preferences, "https://api.openai.com/v1")
-    }
-
-    val OPENAI_MODEL = object : Preference<String>("OPENAI_MODEL") {
-        override var value by SharedPreference_String(name, preferences, "gpt-4o-mini")
     }
 
     val TRANSLATION_PROMPT_PRESET = object : Preference<String>("TRANSLATION_PROMPT_PRESET") {

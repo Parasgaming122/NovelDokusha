@@ -12,7 +12,6 @@ hilt-androidx = "1.2.0"
 ksp = "1.9.23-1.0.20"
 
 kotlinx-coroutines-core = "1.7.3"
-kotlinx-coroutines-playServices = "1.7.3"
 kotlinx-serialization-json = "1.5.1"
 
 testing-mockito-kotlin = "5.0.0"
@@ -54,7 +53,6 @@ compose-lazyColumnScrollbar = "2.2.0"
 compose-landscapist-glide = "2.2.5"
 compose-testing-ui = "1.6.8"
 compose-material-icons-extended = "1.6.8"
-compose-material3 = "1.2.1"
 compose-material3Android = "1.2.1"
 
 
@@ -62,7 +60,6 @@ crux = "5.0"
 gson = "2.10.1"
 jsoup = "1.17.2"
 luaj = "3.0.1"
-translate = "17.0.2"
 moshi = "1.15.0"
 room = "2.6.1"
 junit = "4.13.2"
@@ -74,8 +71,6 @@ okhttp-glideIntegration = "4.15.1"
 readability4j = "1.0.8"
 
 timber = "5.0.1"
-junitVersion = "1.2.1"
-jetbrainsKotlinJvm = "1.9.0"
 
 [libraries]
 
@@ -94,7 +89,6 @@ compose-androidx-runtime-livedata = { module = "androidx.compose.runtime:runtime
 compose-androidx-ui = { module = "androidx.compose.ui:ui", version.ref = "compose-testing-ui" }
 compose-androidx-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4", version.ref = "compose-testing-ui" }
 compose-androidx-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "compose-testing-ui" }
-compose-androidx-material3 = { module = "androidx.compose.material3:material3", version.ref = "compose-material3" }
 compose-lazyColumnScrollbar = { module = "com.github.nanihadesuka:LazyColumnScrollbar", version.ref = "compose-lazyColumnScrollbar" }
 compose-coil = { module = "io.coil-kt:coil-compose", version.ref = "compose-coil" }
 compose-landscapist-glide = { module = "com.github.skydoves:landscapist-glide", version.ref = "compose-landscapist-glide" }
@@ -143,7 +137,6 @@ test-androidx-core-ktx = { module = "androidx.test:core-ktx", version.ref = "and
 # Kotlin
 kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines-core" }
-kotlinx-coroutines-playServices = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "kotlinx-coroutines-playServices" }
 
 # Android
 androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "androidx-constraintLayout" }
@@ -166,12 +159,8 @@ androidx-preference-ktx = { module = "androidx.preference:preference-ktx", versi
 
 material = { module = "com.google.android.material:material", version.ref = "androidx-material" }
 
-# machine translations
-translate = { module = "com.google.mlkit:translate", version.ref = "translate" }
-
 # Logging
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
-androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 
 #build-confing deps
 android-gradlePlugin = { group = "com.android.tools.build", name = "gradle", version.ref = "plugin-agp" }
@@ -192,7 +181,6 @@ dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.r
 noveldokusha-android-application = { id = "noveldokusha.android.application", version = "unspecified" }
 noveldokusha-android-library = { id = "noveldokusha.android.library", version = "unspecified" }
 noveldokusha-android-compose = { id = "noveldokusha.android.compose", version = "unspecified" }
-jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "jetbrainsKotlinJvm" }
 
 [bundles]
 

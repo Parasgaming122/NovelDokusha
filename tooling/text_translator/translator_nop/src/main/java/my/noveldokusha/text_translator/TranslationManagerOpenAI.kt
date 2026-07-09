@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import my.noveldokusha.core.AppCoroutineScope
 import my.noveldokusha.core.appPreferences.AppPreferences
 import my.noveldokusha.text_translator.domain.GOOGLE_TRANSLATE_LANGUAGES
 import my.noveldokusha.text_translator.domain.TranslationManager
@@ -38,7 +37,6 @@ import java.util.concurrent.atomic.AtomicInteger
  * No silent fallback — all errors are thrown so the caller and UI can report them.
  */
 class TranslationManagerOpenAI(
-    private val coroutineScope: AppCoroutineScope,
     private val appPreferences: AppPreferences
 ) : TranslationManager {
 
@@ -99,7 +97,6 @@ class TranslationManagerOpenAI(
     }
 
     override val available = true
-    override val isUsingOnlineTranslation = true
 
     override val models = mutableStateListOf<TranslationModelState>().apply {
         addAll(GOOGLE_TRANSLATE_LANGUAGES.map { lang ->
@@ -111,9 +108,6 @@ class TranslationManagerOpenAI(
             )
         })
     }
-
-    override suspend fun hasModelDownloaded(language: String): TranslationModelState? =
-        models.firstOrNull { it.language == language }
 
     override fun getTranslator(source: String, target: String, systemPromptOverride: String?): TranslatorState {
         Log.d(TAG, "getTranslator: source=$source, target=$target, override=${systemPromptOverride != null}")
@@ -362,11 +356,6 @@ class TranslationManagerOpenAI(
         Log.d(TAG, "parseNumberedTranslations: ${byIndex.size}/${originalTexts.size} parsed")
         return result
     }
-
-    override fun downloadModel(language: String) {}
-    override fun removeModel(language: String) {}
-
-    override suspend fun detectLanguage(text: String): String? = null
 
     companion object {
         private const val TAG = "TranslationOpenAI"

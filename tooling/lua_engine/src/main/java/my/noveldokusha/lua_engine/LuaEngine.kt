@@ -6,15 +6,12 @@ import com.google.gson.JsonParser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import my.noveldokusha.network.NetworkClient
 import my.noveldokusha.network.getRequest
 import my.noveldokusha.network.postRequest
-import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
 import org.luaj.vm2.LuaTable
 import org.luaj.vm2.LuaValue
 import org.luaj.vm2.Varargs
@@ -24,7 +21,6 @@ import org.luaj.vm2.lib.VarArgFunction
 import org.luaj.vm2.lib.jse.JsePlatform
 import timber.log.Timber
 import java.net.URLEncoder
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -77,9 +73,6 @@ class LuaEngine @Inject constructor(
         globals.set("http_post", object : VarArgFunction() {
             override fun invoke(args: Varargs): LuaValue = luaHttpPost(args)
         })
-        globals.set("http_get_batch", object : OneArgFunction() {
-            override fun call(arg: LuaValue): LuaValue = luaHttpGetBatch(arg)
-        })
         globals.set("get_cookies", object : OneArgFunction() {
             override fun call(arg: LuaValue): LuaValue = luaGetCookies(arg)
         })
@@ -88,17 +81,11 @@ class LuaEngine @Inject constructor(
         })
 
         // HTML / DOM
-        globals.set("html_parse", object : OneArgFunction() {
-            override fun call(arg: LuaValue): LuaValue = luaHtmlParse(arg)
-        })
         globals.set("html_select", object : TwoArgFunction() {
             override fun call(html: LuaValue, selector: LuaValue): LuaValue = luaHtmlSelect(html, selector)
         })
         globals.set("html_select_first", object : TwoArgFunction() {
             override fun call(html: LuaValue, selector: LuaValue): LuaValue = luaHtmlSelectFirst(html, selector)
-        })
-        globals.set("html_attr", object : ThreeArgFunction() {
-            override fun call(html: LuaValue, selector: LuaValue, attr: LuaValue): LuaValue = luaHtmlAttr(html, selector, attr)
         })
         globals.set("html_text", object : OneArgFunction() {
             override fun call(arg: LuaValue): LuaValue = luaHtmlText(arg)
@@ -113,9 +100,6 @@ class LuaEngine @Inject constructor(
         })
         globals.set("string_trim", object : OneArgFunction() {
             override fun call(arg: LuaValue): LuaValue = LuaValue.valueOf(arg.optjstring("").trim())
-        })
-        globals.set("string_normalize", object : OneArgFunction() {
-            override fun call(arg: LuaValue): LuaValue = LuaValue.valueOf(java.text.Normalizer.normalize(arg.optjstring(""), java.text.Normalizer.Form.NFKC))
         })
         globals.set("string_split", object : TwoArgFunction() {
             override fun call(str: LuaValue, sep: LuaValue): LuaValue = luaStringSplit(str, sep)
@@ -135,16 +119,10 @@ class LuaEngine @Inject constructor(
         globals.set("regex_match", object : TwoArgFunction() {
             override fun call(input: LuaValue, pattern: LuaValue): LuaValue = luaRegexMatch(input, pattern)
         })
-        globals.set("unescape_unicode", object : OneArgFunction() {
-            override fun call(arg: LuaValue): LuaValue = LuaValue.valueOf(unescapeUnicode(arg.optjstring("")))
-        })
 
         // URL
         globals.set("url_encode", object : OneArgFunction() {
             override fun call(arg: LuaValue): LuaValue = LuaValue.valueOf(URLEncoder.encode(arg.optjstring(""), "UTF-8"))
-        })
-        globals.set("url_encode_charset", object : TwoArgFunction() {
-            override fun call(str: LuaValue, charset: LuaValue): LuaValue = LuaValue.valueOf(URLEncoder.encode(str.optjstring(""), charset.optjstring("UTF-8")))
         })
         globals.set("url_resolve", object : TwoArgFunction() {
             override fun call(base: LuaValue, href: LuaValue): LuaValue = LuaValue.valueOf(java.net.URI(base.optjstring("")).resolve(href.optjstring("")).toString())
@@ -178,9 +156,6 @@ class LuaEngine @Inject constructor(
         })
         globals.set("log_error", object : OneArgFunction() {
             override fun call(arg: LuaValue): LuaValue { Timber.e("[Lua] ${arg.optjstring("")}"); return LuaValue.NIL }
-        })
-        globals.set("os_time", object : OneArgFunction() {
-            override fun call(arg: LuaValue): LuaValue = LuaValue.valueOf(System.currentTimeMillis().toDouble())
         })
 
         // Storage (SharedPreferences "lua_preferences")
@@ -287,40 +262,6 @@ class LuaEngine @Inject constructor(
         }
     }
 
-    private fun luaHttpGetBatch(urlsArg: LuaValue): LuaValue {
-        val urls = mutableListOf<String>()
-        if (urlsArg.istable()) {
-            urlsArg as LuaTable
-            var k: LuaValue = LuaValue.NIL
-            while (true) {
-                val n = urlsArg.next(k)
-                if (n.arg1().isnil()) break
-                urls.add(n.arg(2).tojstring())
-                k = n.arg1()
-            }
-        }
-        val results = LuaTable()
-        for ((i, url) in urls.withIndex()) {
-            try {
-                val response = runBlocking(Dispatchers.IO) { networkClient.get(url) }
-                val body = response.body?.string() ?: ""
-                response.close()
-                val r = LuaTable()
-                r.set("success", LuaValue.valueOf(true))
-                r.set("body", LuaValue.valueOf(body))
-                r.set("code", LuaValue.valueOf(response.code))
-                results.set(i + 1, r)
-            } catch (e: Exception) {
-                val r = LuaTable()
-                r.set("success", LuaValue.valueOf(false))
-                r.set("body", LuaValue.valueOf(""))
-                r.set("code", LuaValue.valueOf(0))
-                results.set(i + 1, r)
-            }
-        }
-        return results
-    }
-
     private fun luaGetCookies(urlArg: LuaValue): LuaValue {
         return try {
             val url = urlArg.optjstring("")
@@ -359,17 +300,6 @@ class LuaEngine @Inject constructor(
 
     // ─── HTML functions ─────────────────────────────────────────────
 
-    private fun luaHtmlParse(htmlArg: LuaValue): LuaValue {
-        val html = htmlArg.optjstring("")
-        val doc = Jsoup.parse(html)
-        val result = LuaTable()
-        result.set("text", LuaValue.valueOf(doc.text()))
-        result.set("html", LuaValue.valueOf(doc.html()))
-        result.set("title", LuaValue.valueOf(doc.title()))
-        result.set("body", LuaValue.valueOf(doc.body()?.html() ?: ""))
-        return result
-    }
-
     private fun luaHtmlSelect(htmlArg: LuaValue, selectorArg: LuaValue): LuaValue {
         val html = htmlArg.optjstring("")
         val selector = selectorArg.optjstring("")
@@ -398,15 +328,6 @@ class LuaEngine @Inject constructor(
         result.set("href", LuaValue.valueOf(el.attr("href")))
         result.set("title", LuaValue.valueOf(el.attr("title")))
         return result
-    }
-
-    private fun luaHtmlAttr(htmlArg: LuaValue, selectorArg: LuaValue, attrArg: LuaValue): LuaValue {
-        val html = htmlArg.optjstring("")
-        val selector = selectorArg.optjstring("")
-        val attr = attrArg.optjstring("")
-        val doc = Jsoup.parse(html)
-        val el = doc.selectFirst(selector) ?: return LuaValue.valueOf("")
-        return LuaValue.valueOf(el.attr(attr))
     }
 
     private fun luaHtmlText(htmlArg: LuaValue): LuaValue {
@@ -457,12 +378,6 @@ class LuaEngine @Inject constructor(
             result.set(i + 1, LuaValue.valueOf(m))
         }
         return result
-    }
-
-    private fun unescapeUnicode(s: String): String {
-        return s.replace(Regex("\\\\u([0-9a-fA-F]{4})")) {
-            it.groupValues[1].toInt(16).toChar().toString()
-        }
     }
 
     // ─── JSON functions ─────────────────────────────────────────────

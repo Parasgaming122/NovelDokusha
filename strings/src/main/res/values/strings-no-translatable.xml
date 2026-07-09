@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string translatable="false" name="source_name_at">AT</string>
     <string translatable="false" name="source_name_box_novel">Box Novel</string>
     <string translatable="false" name="source_name_light_novel_translations">Light Novel Translations</string>
     <string translatable="false" name="source_name_light_novel_world">Light Novel World</string>

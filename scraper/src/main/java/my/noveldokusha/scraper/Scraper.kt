@@ -71,7 +71,6 @@ class Scraper @Inject constructor(
             RoyalRoad(networkClient),
             my.noveldokusha.scraper.sources.NovelUpdates(networkClient),
             Reddit(),
-            AT(),
             Wuxia(networkClient),
             NovelFire(networkClient),
             NovelPhoenix(networkClient),
