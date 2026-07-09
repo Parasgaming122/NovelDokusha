@@ -24,6 +24,7 @@ dependencies {
     implementation(libs.compose.androidx.activity)
     implementation(libs.compose.androidx.animation)
     implementation(libs.compose.androidx.material.icons.extended)
+    api(libs.compose.androidx.material)
     implementation(libs.compose.material3.android)
     implementation(libs.compose.accompanist.systemuicontroller)
     implementation(libs.compose.landscapist.glide)
