@@ -21,4 +21,7 @@ dependencies {
 
     // kotlinx-serialization for GoogleFree's JSON response parsing
     implementation(libs.kotlinx.serialization.json)
+
+    // Coroutines (used by all managers for withContext/Dispatchers.IO)
+    implementation(libs.kotlinx.coroutines.core)
 }

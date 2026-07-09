@@ -4,7 +4,6 @@ import my.noveldokusha.core.appPreferences.AppPreferences
 import my.noveldokusha.network.NetworkClient
 import my.noveldokusha.scraper.databases.BakaUpdates
 import my.noveldokusha.scraper.databases.NovelUpdates
-import my.noveldokusha.scraper.sources.AT
 import my.noveldokusha.scraper.sources.BacaLightnovel
 import my.noveldokusha.scraper.sources.BoxNovel
 import my.noveldokusha.scraper.sources.IndoWebnovel
